@@ -124,3 +124,58 @@ class TestAccountRegistration:
 
         # Account should be valid (terms were agreed)
         assert account.status == "valid"
+
+
+class TestBadNonceRetry:
+    """Tests for bad nonce retry behavior."""
+
+    def test_bad_nonce_retry_succeeds(
+        self, pebble_directory_url: str, challtestsrv_url: str, pebble_ca_cert: str
+    ):
+        """Client should automatically retry on bad nonce errors.
+
+        This test forces a stale nonce and verifies the client
+        successfully retries with a fresh nonce.
+        """
+        client = AcmeClient(
+            directory_url=pebble_directory_url,
+            account_key=generate_rsa_key(2048),
+            dns_provider=TestProvider(challtestsrv_url),
+            ca_cert=pebble_ca_cert,
+        )
+
+        # Register account first
+        client.register_account(email="test@example.com")
+
+        # Force a stale nonce by setting an invalid one
+        client._nonce = "invalid-stale-nonce-that-will-be-rejected"
+
+        # This request should succeed because the client retries on badNonce
+        # Creating an order will use the stale nonce, get rejected, and retry
+        order = client.create_order(domains=["test-retry.example.com"])
+
+        # If we get here, the retry worked
+        assert order.status == "pending"
+
+    def test_bad_nonce_retry_multiple_times(
+        self, pebble_directory_url: str, challtestsrv_url: str, pebble_ca_cert: str
+    ):
+        """Client should handle consecutive requests with stale nonces.
+
+        Each request that gets a bad nonce should retry independently.
+        """
+        client = AcmeClient(
+            directory_url=pebble_directory_url,
+            account_key=generate_rsa_key(2048),
+            dns_provider=TestProvider(challtestsrv_url),
+            ca_cert=pebble_ca_cert,
+        )
+
+        # Register account
+        client.register_account()
+
+        # Make multiple requests, each with a forced stale nonce
+        for i in range(3):
+            client._nonce = f"stale-nonce-{i}"
+            order = client.create_order(domains=[f"test-{i}.example.com"])
+            assert order.status == "pending"
