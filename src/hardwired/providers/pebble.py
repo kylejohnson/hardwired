@@ -1,11 +1,11 @@
-"""Test DNS provider for pebble-challtestsrv."""
+"""Pebble DNS provider for pebble-challtestsrv."""
 
 import httpx
 
 from hardwired.providers.base import DnsProvider
 
 
-class TestProvider(DnsProvider):
+class PebbleProvider(DnsProvider):
     """DNS provider for pebble-challtestsrv.
 
     This provider is used for testing against the Pebble ACME server

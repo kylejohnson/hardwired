@@ -13,7 +13,7 @@ pip install hardwired
 ```python
 from hardwired import AcmeClient
 from hardwired.crypto import generate_rsa_key
-from hardwired.providers.test import TestProvider
+from hardwired.providers.pebble import PebbleProvider
 
 # Generate an account key
 account_key = generate_rsa_key(2048)
@@ -22,7 +22,7 @@ account_key = generate_rsa_key(2048)
 client = AcmeClient(
     directory_url="https://acme-v02.api.letsencrypt.org/directory",
     account_key=account_key,
-    dns_provider=TestProvider(challtestsrv_url="http://localhost:8055"),
+    dns_provider=PebbleProvider(challtestsrv_url="http://localhost:8055"),
 )
 
 # Register account

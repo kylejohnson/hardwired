@@ -2,19 +2,19 @@
 
 import pytest
 
-from hardwired.providers.test import TestProvider
+from hardwired.providers.pebble import PebbleProvider
 
 
 @pytest.fixture
-def test_provider(challtestsrv_url: str) -> TestProvider:
-    """Create a TestProvider configured for challtestsrv."""
-    return TestProvider(challtestsrv_url=challtestsrv_url)
+def test_provider(challtestsrv_url: str) -> PebbleProvider:
+    """Create a PebbleProvider configured for challtestsrv."""
+    return PebbleProvider(challtestsrv_url=challtestsrv_url)
 
 
-class TestTestProviderIntegration:
-    """Integration tests for TestProvider against pebble-challtestsrv."""
+class TestPebbleProviderIntegration:
+    """Integration tests for PebbleProvider against pebble-challtestsrv."""
 
-    def test_create_and_delete_dns_record(self, test_provider: TestProvider):
+    def test_create_and_delete_dns_record(self, test_provider: PebbleProvider):
         """Should be able to create and delete DNS TXT records."""
         domain = "integration-test.example.com"
         token = "test-token-abc123"
@@ -25,7 +25,7 @@ class TestTestProviderIntegration:
         # Delete record - should not raise
         test_provider.delete_txt_record(domain, token)
 
-    def test_create_multiple_records(self, test_provider: TestProvider):
+    def test_create_multiple_records(self, test_provider: PebbleProvider):
         """Should be able to create multiple records for different domains."""
         domains = [
             ("domain1.example.com", "token1"),
@@ -41,12 +41,12 @@ class TestTestProviderIntegration:
         for domain, token in domains:
             test_provider.delete_txt_record(domain, token)
 
-    def test_wait_for_propagation_immediate(self, test_provider: TestProvider):
+    def test_wait_for_propagation_immediate(self, test_provider: PebbleProvider):
         """For test provider, propagation should be immediate."""
         result = test_provider.wait_for_propagation("example.com", "token", timeout=1)
         assert result is True
 
-    def test_create_record_for_wildcard_domain(self, test_provider: TestProvider):
+    def test_create_record_for_wildcard_domain(self, test_provider: PebbleProvider):
         """Should handle wildcard domain records correctly."""
         # Wildcard domains use the base domain for the challenge
         domain = "example.com"  # Not *.example.com
