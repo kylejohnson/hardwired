@@ -23,7 +23,7 @@
     ]
   },
   "sandbox": {
-    "enabled": false,
-    "autoAllowBashIfSandboxed": false
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
   }
 }
