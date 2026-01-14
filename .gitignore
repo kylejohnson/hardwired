@@ -33,6 +33,7 @@ ENV/
 .coverage.*
 htmlcov/
 .pytest_cache/
+.ruff_cache/
 .tox/
 .nox/
 

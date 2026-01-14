@@ -18,11 +18,12 @@
       "Bash(curl:*)",
       "Bash(docker logs:*)",
       "Bash(docker inspect:*)",
-      "Bash(uv pip:*)"
+      "Bash(uv pip:*)",
+      "WebFetch(domain:www.gnu.org)"
     ]
   },
   "sandbox": {
-    "enabled": true,
-    "autoAllowBashIfSandboxed": true
+    "enabled": false,
+    "autoAllowBashIfSandboxed": false
   }
 }
