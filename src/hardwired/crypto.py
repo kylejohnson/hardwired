@@ -97,6 +97,26 @@ def _base64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
+def base64url_encode(data: bytes) -> str:
+    """Base64url encode without padding (public API)."""
+    return _base64url_encode(data)
+
+
+def pem_to_der(pem: str) -> bytes:
+    """Convert PEM-encoded certificate to DER format.
+
+    Args:
+        pem: PEM-encoded certificate string.
+
+    Returns:
+        DER-encoded certificate bytes.
+    """
+    from cryptography.hazmat.primitives import serialization
+
+    cert = x509.load_pem_x509_certificate(pem.encode())
+    return cert.public_bytes(serialization.Encoding.DER)
+
+
 def _int_to_base64url(n: int, length: int) -> str:
     """Convert an integer to base64url encoding with fixed length."""
     return _base64url_encode(n.to_bytes(length, byteorder="big"))
@@ -167,11 +187,25 @@ def key_thumbprint(key: PrivateKey) -> str:
     return _base64url_encode(digest)
 
 
+def get_jwk(key: PrivateKey) -> dict:
+    """Get the JWK (JSON Web Key) representation of a public key.
+
+    This is the public API for getting JWK representation.
+
+    Args:
+        key: Private key to extract public JWK from.
+
+    Returns:
+        JWK dictionary.
+    """
+    return _get_jwk(key)
+
+
 def sign_jws(
     key: PrivateKey,
     payload: dict | str,
     url: str,
-    nonce: str,
+    nonce: str | None = None,
     kid: str | None = None,
 ) -> str:
     """Sign a payload as a JWS (JSON Web Signature) for ACME.
@@ -180,7 +214,7 @@ def sign_jws(
         key: Private key to sign with.
         payload: Payload to sign (dict for JSON, empty string for POST-as-GET).
         url: URL of the ACME endpoint.
-        nonce: Replay nonce.
+        nonce: Replay nonce (optional for inner JWS in key rollover).
         kid: Account URL (if registered). If None, includes JWK.
 
     Returns:
@@ -199,11 +233,14 @@ def sign_jws(
             raise ValueError(f"Unsupported curve: {curve_name}")
 
     # Build protected header
-    protected = {
+    protected: dict[str, str | dict] = {
         "alg": alg,
-        "nonce": nonce,
         "url": url,
     }
+
+    # Only include nonce if provided (inner JWS in key rollover has no nonce)
+    if nonce is not None:
+        protected["nonce"] = nonce
 
     if kid:
         protected["kid"] = kid

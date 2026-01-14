@@ -179,3 +179,81 @@ class TestBadNonceRetry:
             client._nonce = f"stale-nonce-{i}"
             order = client.create_order(domains=[f"test-{i}.example.com"])
             assert order.status == "pending"
+
+
+class TestAccountKeyRollover:
+    """Tests for account key rollover (RFC 8555 Section 7.3.5)."""
+
+    def test_account_key_rollover(
+        self, pebble_directory_url: str, challtestsrv_url: str, pebble_ca_cert: str
+    ):
+        """Should roll over to a new account key."""
+        from hardwired.crypto import generate_ecdsa_key
+
+        # Create client with initial RSA key
+        old_key = generate_rsa_key(2048)
+        client = AcmeClient(
+            directory_url=pebble_directory_url,
+            account_key=old_key,
+            dns_provider=TestProvider(challtestsrv_url),
+            ca_cert=pebble_ca_cert,
+        )
+        client.register_account(email="rollover@example.com")
+
+        # Generate new ECDSA key and roll over
+        new_key = generate_ecdsa_key()
+        client.rollover_key(new_key)
+
+        # Verify new key works - should be able to create orders
+        order = client.create_order(domains=["rollover-test.example.com"])
+        assert order is not None
+        assert order.status == "pending"
+
+    def test_account_key_rollover_same_algorithm(
+        self, pebble_directory_url: str, challtestsrv_url: str, pebble_ca_cert: str
+    ):
+        """Should roll over to a new key of the same algorithm."""
+        # Create client with initial key
+        old_key = generate_rsa_key(2048)
+        client = AcmeClient(
+            directory_url=pebble_directory_url,
+            account_key=old_key,
+            dns_provider=TestProvider(challtestsrv_url),
+            ca_cert=pebble_ca_cert,
+        )
+        client.register_account()
+
+        # Roll over to another RSA key
+        new_key = generate_rsa_key(2048)
+        client.rollover_key(new_key)
+
+        # Verify new key works
+        order = client.create_order(domains=["rollover-same.example.com"])
+        assert order.status == "pending"
+
+
+class TestAccountDeactivation:
+    """Tests for account deactivation (RFC 8555 Section 7.3.6)."""
+
+    def test_account_deactivation(
+        self, pebble_directory_url: str, challtestsrv_url: str, pebble_ca_cert: str
+    ):
+        """Should deactivate account (irreversible)."""
+        # Create fresh account for this test
+        key = generate_rsa_key(2048)
+        client = AcmeClient(
+            directory_url=pebble_directory_url,
+            account_key=key,
+            dns_provider=TestProvider(challtestsrv_url),
+            ca_cert=pebble_ca_cert,
+        )
+        client.register_account(email="deactivate@example.com")
+
+        # Deactivate
+        client.deactivate_account()
+
+        # Verify account is deactivated - creating orders should fail
+        from hardwired.exceptions import AcmeError
+
+        with pytest.raises(AcmeError):
+            client.create_order(domains=["deactivated-test.example.com"])

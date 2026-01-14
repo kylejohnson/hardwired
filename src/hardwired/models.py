@@ -74,9 +74,19 @@ class Order(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class AuthorizationInfo(BaseModel):
+    """Authorization details for deactivation support."""
+
+    url: str
+    domain: str
+    expires_at: datetime
+
+
 class CertificateResult(BaseModel):
     """Result of certificate issuance."""
 
     certificate_pem: str
     private_key_pem: str | None
     expires_at: datetime
+    domains: list[str]
+    authorizations: list[AuthorizationInfo]

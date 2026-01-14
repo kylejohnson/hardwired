@@ -7,11 +7,19 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
-from hardwired.crypto import create_csr, key_thumbprint, sign_jws
+from hardwired.crypto import (
+    base64url_encode,
+    create_csr,
+    get_jwk,
+    key_thumbprint,
+    pem_to_der,
+    sign_jws,
+)
 from hardwired.exceptions import AcmeError
 from hardwired.models import (
     Account,
     Authorization,
+    AuthorizationInfo,
     CertificateResult,
     Challenge,
     Directory,
@@ -204,6 +212,70 @@ class AcmeClient:
 
         return Account.model_validate(response.json())
 
+    def rollover_key(self, new_key: PrivateKey) -> None:
+        """Roll over to a new account key (RFC 8555 Section 7.3.5).
+
+        This changes the key associated with the account. After rollover,
+        the client will use the new key for all subsequent requests.
+
+        Args:
+            new_key: The new private key to use for the account.
+
+        Raises:
+            AcmeError: If key rollover fails.
+            ValueError: If account is not registered.
+        """
+        if not self._account_url:
+            raise ValueError("Account not registered. Call register_account() first.")
+
+        key_change_url = self.directory.key_change
+
+        # Inner JWS payload: account URL and old key's JWK
+        inner_payload = {
+            "account": self._account_url,
+            "oldKey": get_jwk(self.account_key),
+        }
+
+        # Create inner JWS signed by NEW key (no nonce for inner JWS)
+        inner_jws = sign_jws(
+            key=new_key,
+            payload=inner_payload,
+            url=key_change_url,
+            nonce=None,  # Inner JWS has no nonce per RFC 8555
+            kid=None,  # Uses jwk (new key), not kid
+        )
+
+        # Convert inner JWS from compact to JSON Flattened Serialization
+        # for use as the outer JWS payload
+        inner_protected, inner_payload_b64, inner_sig = inner_jws.split(".")
+        inner_jws_json = {
+            "protected": inner_protected,
+            "payload": inner_payload_b64,
+            "signature": inner_sig,
+        }
+
+        # Send outer JWS signed by OLD key with inner JWS as payload
+        self._signed_request(key_change_url, inner_jws_json)
+
+        # Update internal key reference
+        self.account_key = new_key
+
+    def deactivate_account(self) -> None:
+        """Deactivate the current account (RFC 8555 Section 7.3.6).
+
+        WARNING: This is irreversible. A deactivated account cannot be
+        reactivated, and no new orders can be created.
+
+        Raises:
+            AcmeError: If deactivation fails.
+            ValueError: If account is not registered.
+        """
+        if not self._account_url:
+            raise ValueError("Account not registered. Call register_account() first.")
+
+        payload = {"status": "deactivated"}
+        self._signed_request(self._account_url, payload)
+
     def create_order(self, domains: list[str]) -> Order:
         """Create a new certificate order.
 
@@ -249,6 +321,23 @@ class AcmeClient:
             object.__setattr__(authz, "_url", authz_url)
             authorizations.append(authz)
         return authorizations
+
+    def deactivate_authorization(self, authz_url: str) -> Authorization:
+        """Deactivate an authorization (RFC 8555 Section 7.5.2).
+
+        This prevents the authorization from being used to issue certificates.
+        Use this when selling/transferring a domain to ensure no new certificates
+        can be issued for it.
+
+        Args:
+            authz_url: The authorization URL to deactivate.
+
+        Returns:
+            The updated Authorization with status "deactivated".
+        """
+        payload = {"status": "deactivated"}
+        response = self._signed_request(authz_url, payload)
+        return Authorization.model_validate(response.json())
 
     def get_challenge(
         self, authorization: Authorization, challenge_type: str = "dns-01"
@@ -439,6 +528,46 @@ class AcmeClient:
         response = self._signed_request(order.certificate, "")
         return response.text
 
+    def revoke_certificate(
+        self,
+        certificate_pem: str,
+        reason: int | None = None,
+    ) -> None:
+        """Revoke a certificate (RFC 8555 Section 7.6).
+
+        Args:
+            certificate_pem: The PEM-encoded certificate to revoke.
+            reason: Optional revocation reason code (RFC 5280 Section 5.3.1):
+                    0 = unspecified
+                    1 = keyCompromise
+                    2 = cACompromise
+                    3 = affiliationChanged
+                    4 = superseded
+                    5 = cessationOfOperation
+                    6 = certificateHold
+
+        Raises:
+            AcmeError: If revocation fails.
+        """
+        # Convert PEM to DER and base64url encode
+        try:
+            der_bytes = pem_to_der(certificate_pem)
+        except ValueError as e:
+            raise AcmeError(
+                type="urn:ietf:params:acme:error:malformed",
+                detail=f"Invalid certificate PEM: {e}",
+                status_code=400,
+            ) from e
+        cert_b64 = base64url_encode(der_bytes)
+
+        # Build payload
+        payload: dict[str, str | int] = {"certificate": cert_b64}
+        if reason is not None:
+            payload["reason"] = reason
+
+        # POST to revokeCert endpoint
+        self._signed_request(self.directory.revoke_cert, payload)
+
     def obtain_certificate(
         self,
         domains: list[str],
@@ -509,8 +638,23 @@ class AcmeClient:
         cert = x509.load_pem_x509_certificate(certificate_pem.encode())
         expires_at = cert.not_valid_after_utc
 
+        # Build authorization info for deactivation support
+        authz_info_list: list[AuthorizationInfo] = []
+        for authz in authorizations:
+            authz_url = getattr(authz, "_url", None)
+            if authz_url and authz.expires:
+                authz_info_list.append(
+                    AuthorizationInfo(
+                        url=authz_url,
+                        domain=authz.identifier.value,
+                        expires_at=authz.expires,
+                    )
+                )
+
         return CertificateResult(
             certificate_pem=certificate_pem,
             private_key_pem=private_key_pem,
             expires_at=expires_at,
+            domains=domains,
+            authorizations=authz_info_list,
         )

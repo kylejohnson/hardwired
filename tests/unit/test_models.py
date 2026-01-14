@@ -11,6 +11,7 @@ from hardwired.exceptions import (
 from hardwired.models import (
     Account,
     Authorization,
+    AuthorizationInfo,
     CertificateResult,
     Challenge,
     Directory,
@@ -255,6 +256,30 @@ class TestAuthorizationModel:
         assert authz.wildcard is True
 
 
+class TestAuthorizationInfoModel:
+    """Tests for AuthorizationInfo model."""
+
+    def test_authorization_info_model(self):
+        """AuthorizationInfo should have url, domain, and expires_at."""
+        info = AuthorizationInfo(
+            url="https://acme.example/authz/123",
+            domain="example.com",
+            expires_at=datetime(2026, 2, 1, tzinfo=UTC),
+        )
+        assert info.url == "https://acme.example/authz/123"
+        assert info.domain == "example.com"
+        assert info.expires_at.year == 2026
+
+    def test_authorization_info_wildcard_domain(self):
+        """AuthorizationInfo should work with base domain for wildcards."""
+        info = AuthorizationInfo(
+            url="https://acme.example/authz/456",
+            domain="example.com",  # Base domain, covers *.example.com
+            expires_at=datetime(2026, 2, 15, tzinfo=UTC),
+        )
+        assert info.domain == "example.com"
+
+
 class TestCertificateResultModel:
     """Tests for CertificateResult model."""
 
@@ -266,6 +291,8 @@ class TestCertificateResultModel:
             certificate_pem=cert_pem,
             private_key_pem=key_pem,
             expires_at=datetime(2024, 12, 31, 23, 59, 59, tzinfo=UTC),
+            domains=["example.com"],
+            authorizations=[],
         )
 
         assert "CERTIFICATE" in result.certificate_pem
@@ -279,9 +306,41 @@ class TestCertificateResultModel:
             certificate_pem="-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
             private_key_pem=None,
             expires_at=datetime(2024, 12, 31, 23, 59, 59, tzinfo=UTC),
+            domains=[],
+            authorizations=[],
         )
 
         assert result.private_key_pem is None
+
+    def test_certificate_result_includes_domains(self):
+        """CertificateResult should include domains list."""
+        result = CertificateResult(
+            certificate_pem="-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
+            private_key_pem="-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----",
+            expires_at=datetime(2026, 3, 1, tzinfo=UTC),
+            domains=["example.com", "*.example.com"],
+            authorizations=[],
+        )
+        assert result.domains == ["example.com", "*.example.com"]
+        assert len(result.domains) == 2
+
+    def test_certificate_result_includes_authorization_info(self):
+        """CertificateResult should include authorization info for deactivation."""
+        authz_info = AuthorizationInfo(
+            url="https://acme.example/authz/789",
+            domain="example.com",
+            expires_at=datetime(2026, 2, 15, tzinfo=UTC),
+        )
+        result = CertificateResult(
+            certificate_pem="-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
+            private_key_pem="-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----",
+            expires_at=datetime(2026, 3, 1, tzinfo=UTC),
+            domains=["example.com", "*.example.com"],
+            authorizations=[authz_info],
+        )
+        assert len(result.authorizations) == 1
+        assert result.authorizations[0].domain == "example.com"
+        assert result.authorizations[0].url == "https://acme.example/authz/789"
 
 
 class TestAcmeError:
