@@ -4,22 +4,13 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:datatracker.ietf.org)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(uv venv:*)",
-      "Bash(uv pip install:*)",
-      "Bash(uv run pytest:*)",
       "Bash(docker compose:*)",
-      "Bash(uv --version:*)",
-      "Bash(uv sync:*)",
-      "Bash(uv run python:*)",
-      "Bash(uv run ruff:*)",
-      "Bash(uv run ruff check:*)",
-      "Bash(uv run:*)",
       "Bash(docker network prune:*)",
       "Bash(curl:*)",
       "Bash(docker logs:*)",
       "Bash(docker inspect:*)",
-      "Bash(uv pip:*)",
-      "WebFetch(domain:www.gnu.org)"
+      "WebFetch(domain:www.gnu.org)",
+      "Bash(uv:*)"
     ]
   },
   "sandbox": {
