@@ -25,5 +25,8 @@
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true
+  },
+  "env": {
+    "UV_CACHE_DIR": "./.uv_cache"
   }
 }
