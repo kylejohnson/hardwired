@@ -67,17 +67,53 @@ class PowerDnsProvider(DnsProvider):
 
         raise ValueError(f"No zone found for domain: {domain}")
 
-    def create_txt_record(self, domain: str, token: str) -> None:
-        """Create a TXT record via PowerDNS API.
+    def _handle_response(self, response: httpx.Response, zone: str) -> None:
+        """Handle PowerDNS API response status codes.
+
+        Args:
+            response: The httpx Response object.
+            zone: The zone name (for error messages).
+
+        Raises:
+            ValueError: For API errors with descriptive messages.
+        """
+        if response.status_code == 204:
+            return  # Success
+
+        # Try to extract error detail from response body
+        try:
+            error_data = response.json()
+            detail = error_data.get("error", response.text)
+        except Exception:
+            detail = response.text or "Unknown error"
+
+        status_messages = {
+            400: f"Bad Request: {detail}",
+            404: f"Zone not found: {detail}",
+            422: f"Unprocessable Entity: {detail}",
+            500: f"Server Error: {detail}",
+        }
+
+        message = status_messages.get(
+            response.status_code,
+            f"Unexpected error ({response.status_code}): {detail}",
+        )
+        raise ValueError(message)
+
+    def _common_dns_record(self, domain: str, token: str, changetype: str) -> None:
+        """Execute a DNS record change via PowerDNS API.
 
         Args:
             domain: The domain name (without _acme-challenge prefix).
             token: The challenge token value.
+            changetype: PowerDNS changetype - "REPLACE" or "DELETE".
 
         Raises:
-            httpx.HTTPStatusError: If the API request fails.
-            ValueError: If no matching zone is found.
+            ValueError: If changetype is invalid, zone not found, or API error.
         """
+        if changetype not in ("REPLACE", "DELETE"):
+            raise ValueError(f"Invalid changetype: {changetype}. Must be 'REPLACE' or 'DELETE'.")
+
         zone = self._find_zone(domain)
         record_name = f"_acme-challenge.{domain.rstrip('.')}."
 
@@ -86,23 +122,17 @@ class PowerDnsProvider(DnsProvider):
             "Content-Type": "application/json",
         }
 
-        # PowerDNS requires TXT content to be quoted
-        payload = {
-            "rrsets": [
-                {
-                    "name": record_name,
-                    "type": "TXT",
-                    "ttl": 60,
-                    "changetype": "REPLACE",
-                    "records": [
-                        {
-                            "content": f'"{token}"',
-                            "disabled": False,
-                        }
-                    ],
-                }
-            ]
+        rrset: dict = {
+            "name": record_name,
+            "type": "TXT",
+            "changetype": changetype,
         }
+
+        if changetype == "REPLACE":
+            rrset["ttl"] = 60
+            rrset["records"] = [{"content": f'"{token}"', "disabled": False}]
+
+        payload = {"rrsets": [rrset]}
 
         response = httpx.patch(
             f"{self.api_url}/api/v1/servers/{self.server_id}/zones/{zone}",
@@ -110,7 +140,19 @@ class PowerDnsProvider(DnsProvider):
             json=payload,
             timeout=self.timeout,
         )
-        response.raise_for_status()
+        self._handle_response(response, zone)
+
+    def create_txt_record(self, domain: str, token: str) -> None:
+        """Create a TXT record via PowerDNS API.
+
+        Args:
+            domain: The domain name (without _acme-challenge prefix).
+            token: The challenge token value.
+
+        Raises:
+            ValueError: If no matching zone is found or API error.
+        """
+        self._common_dns_record(domain, token, "REPLACE")
 
     def delete_txt_record(self, domain: str, token: str) -> None:
         """Delete a TXT record via PowerDNS API.
@@ -120,34 +162,9 @@ class PowerDnsProvider(DnsProvider):
             token: The challenge token value (unused, kept for interface).
 
         Raises:
-            httpx.HTTPStatusError: If the API request fails.
-            ValueError: If no matching zone is found.
+            ValueError: If no matching zone is found or API error.
         """
-        zone = self._find_zone(domain)
-        record_name = f"_acme-challenge.{domain.rstrip('.')}."
-
-        headers = {
-            "X-API-Key": self.api_key,
-            "Content-Type": "application/json",
-        }
-
-        payload = {
-            "rrsets": [
-                {
-                    "name": record_name,
-                    "type": "TXT",
-                    "changetype": "DELETE",
-                }
-            ]
-        }
-
-        response = httpx.patch(
-            f"{self.api_url}/api/v1/servers/{self.server_id}/zones/{zone}",
-            headers=headers,
-            json=payload,
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
+        self._common_dns_record(domain, token, "DELETE")
 
     def wait_for_propagation(self, domain: str, token: str, timeout: int = 120) -> bool:
         """Wait for DNS propagation.

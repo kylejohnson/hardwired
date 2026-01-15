@@ -14,7 +14,9 @@
       "Bash(docker inspect:*)",
       "WebFetch(domain:www.gnu.org)",
       "Bash(uv:*)",
-      "WebFetch(domain:doc.powerdns.com)"
+      "WebFetch(domain:doc.powerdns.com)",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:files.pythonhosted.org)"
     ]
   },
   "sandbox": {

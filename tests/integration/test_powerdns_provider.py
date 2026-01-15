@@ -1,5 +1,6 @@
 """Integration tests for PowerDNS provider (requires PowerDNS in Docker)."""
 
+import httpx
 import pytest
 
 from hardwired.providers.powerdns import PowerDnsProvider
@@ -79,3 +80,66 @@ class TestPowerDnsProviderIntegration:
 
         powerdns_provider.create_txt_record(domain, token)
         powerdns_provider.delete_txt_record(domain, token)
+
+    def test_create_record_verifiable_via_api(
+        self,
+        powerdns_provider: PowerDnsProvider,
+        powerdns_api_url: str,
+        powerdns_api_key: str,
+    ):
+        """Created record should be verifiable via direct API call."""
+        domain = "verify.example.org"
+        token = "verify-token-123"
+
+        powerdns_provider.create_txt_record(domain, token)
+
+        try:
+            # Verify record exists via direct API call
+            headers = {"X-API-Key": powerdns_api_key}
+            response = httpx.get(
+                f"{powerdns_api_url}/api/v1/servers/localhost/zones/example.org.",
+                headers=headers,
+                timeout=30,
+            )
+            zone_data = response.json()
+
+            # Find our TXT record in rrsets
+            txt_records = [
+                rrset
+                for rrset in zone_data.get("rrsets", [])
+                if rrset["name"] == f"_acme-challenge.{domain}." and rrset["type"] == "TXT"
+            ]
+            assert len(txt_records) == 1
+            assert f'"{token}"' in txt_records[0]["records"][0]["content"]
+        finally:
+            # Cleanup
+            powerdns_provider.delete_txt_record(domain, token)
+
+    def test_delete_record_verifiable_via_api(
+        self,
+        powerdns_provider: PowerDnsProvider,
+        powerdns_api_url: str,
+        powerdns_api_key: str,
+    ):
+        """Deleted record should not exist via direct API call."""
+        domain = "delete-verify.example.org"
+        token = "delete-token-456"
+
+        powerdns_provider.create_txt_record(domain, token)
+        powerdns_provider.delete_txt_record(domain, token)
+
+        # Verify record no longer exists
+        headers = {"X-API-Key": powerdns_api_key}
+        response = httpx.get(
+            f"{powerdns_api_url}/api/v1/servers/localhost/zones/example.org.",
+            headers=headers,
+            timeout=30,
+        )
+        zone_data = response.json()
+
+        txt_records = [
+            rrset
+            for rrset in zone_data.get("rrsets", [])
+            if rrset["name"] == f"_acme-challenge.{domain}." and rrset["type"] == "TXT"
+        ]
+        assert len(txt_records) == 0
