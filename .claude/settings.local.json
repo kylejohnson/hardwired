@@ -1,4 +1,7 @@
 {
+  "env": {
+    "UV_CACHE_DIR": "./.uv_cache"
+  },
   "permissions": {
     "allow": [
       "WebFetch(domain:github.com)",
@@ -10,14 +13,12 @@
       "Bash(docker logs:*)",
       "Bash(docker inspect:*)",
       "WebFetch(domain:www.gnu.org)",
-      "Bash(uv:*)"
+      "Bash(uv:*)",
+      "WebFetch(domain:doc.powerdns.com)"
     ]
   },
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true
-  },
-  "env": {
-    "UV_CACHE_DIR": "./.uv_cache"
   }
 }
