@@ -5,7 +5,7 @@ import hashlib
 import json
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.x509.oid import NameOID
 
@@ -48,6 +48,38 @@ def generate_ecdsa_key(curve: str = "P-256") -> ec.EllipticCurvePrivateKey:
         raise ValueError(f"Unsupported curve: {curve}. Supported: {list(curves.keys())}")
 
     return ec.generate_private_key(curves[curve])
+
+
+def load_private_key_pem(pem_data: str, password: bytes | None = None) -> PrivateKey:
+    """Load a private key from PEM-encoded data.
+
+    Args:
+        pem_data: PEM-encoded private key string.
+        password: Optional password for encrypted keys.
+
+    Returns:
+        RSA or ECDSA private key.
+
+    Raises:
+        ValueError: If PEM data is invalid or password is incorrect.
+    """
+    try:
+        key = serialization.load_pem_private_key(
+            pem_data.encode("utf-8"),
+            password=password,
+        )
+    except ValueError as e:
+        if "password" in str(e).lower() or "decrypt" in str(e).lower():
+            raise ValueError("Invalid password or encrypted key requires password") from e
+        raise ValueError(f"Invalid PEM data: {e}") from e
+    except TypeError as e:
+        # TypeError is raised when encrypted key is loaded without password
+        raise ValueError("Invalid password or encrypted key requires password") from e
+
+    if not isinstance(key, (rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey)):
+        raise ValueError(f"Unsupported key type: {type(key).__name__}")
+
+    return key
 
 
 def create_csr(
@@ -111,8 +143,6 @@ def pem_to_der(pem: str) -> bytes:
     Returns:
         DER-encoded certificate bytes.
     """
-    from cryptography.hazmat.primitives import serialization
-
     cert = x509.load_pem_x509_certificate(pem.encode())
     return cert.public_bytes(serialization.Encoding.DER)
 

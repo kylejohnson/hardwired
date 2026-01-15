@@ -12,6 +12,7 @@ from hardwired.crypto import (
     generate_ecdsa_key,
     generate_rsa_key,
     key_thumbprint,
+    load_private_key_pem,
     sign_jws,
 )
 
@@ -241,3 +242,101 @@ class TestKeyThumbprint:
         thumbprint2 = key_thumbprint(key2)
 
         assert thumbprint1 != thumbprint2
+
+
+class TestLoadPrivateKeyPem:
+    """Tests for loading private keys from PEM format."""
+
+    def test_load_rsa_key_from_pem(self):
+        """Load RSA key from PEM string."""
+        from cryptography.hazmat.primitives import serialization
+
+        # Generate a key and serialize to PEM
+        original_key = generate_rsa_key(2048)
+        pem_data = original_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ).decode("utf-8")
+
+        # Load the key back from PEM
+        loaded_key = load_private_key_pem(pem_data)
+
+        # Verify it's the same key by comparing thumbprints
+        assert isinstance(loaded_key, rsa.RSAPrivateKey)
+        assert key_thumbprint(loaded_key) == key_thumbprint(original_key)
+
+    def test_load_ecdsa_key_from_pem(self):
+        """Load ECDSA key from PEM string."""
+        from cryptography.hazmat.primitives import serialization
+
+        # Generate a key and serialize to PEM
+        original_key = generate_ecdsa_key("P-256")
+        pem_data = original_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ).decode("utf-8")
+
+        # Load the key back from PEM
+        loaded_key = load_private_key_pem(pem_data)
+
+        # Verify it's the same key
+        assert isinstance(loaded_key, ec.EllipticCurvePrivateKey)
+        assert key_thumbprint(loaded_key) == key_thumbprint(original_key)
+
+    def test_load_encrypted_key_with_password(self):
+        """Load encrypted PEM key with password."""
+        from cryptography.hazmat.primitives import serialization
+
+        # Generate and encrypt a key
+        original_key = generate_rsa_key(2048)
+        password = b"test-password-123"
+        pem_data = original_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.BestAvailableEncryption(password),
+        ).decode("utf-8")
+
+        # Load with correct password
+        loaded_key = load_private_key_pem(pem_data, password=password)
+
+        assert isinstance(loaded_key, rsa.RSAPrivateKey)
+        assert key_thumbprint(loaded_key) == key_thumbprint(original_key)
+
+    def test_load_invalid_pem_raises_error(self):
+        """Invalid PEM data should raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid PEM"):
+            load_private_key_pem("not a valid PEM string")
+
+    def test_load_encrypted_key_wrong_password_raises_error(self):
+        """Wrong password should raise ValueError."""
+        from cryptography.hazmat.primitives import serialization
+
+        # Generate and encrypt a key
+        original_key = generate_rsa_key(2048)
+        pem_data = original_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.BestAvailableEncryption(b"correct-password"),
+        ).decode("utf-8")
+
+        # Try to load with wrong password
+        with pytest.raises(ValueError, match="password"):
+            load_private_key_pem(pem_data, password=b"wrong-password")
+
+    def test_load_encrypted_key_without_password_raises_error(self):
+        """Encrypted key without password should raise ValueError."""
+        from cryptography.hazmat.primitives import serialization
+
+        # Generate and encrypt a key
+        original_key = generate_rsa_key(2048)
+        pem_data = original_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.BestAvailableEncryption(b"some-password"),
+        ).decode("utf-8")
+
+        # Try to load without password
+        with pytest.raises(ValueError, match="password"):
+            load_private_key_pem(pem_data)
