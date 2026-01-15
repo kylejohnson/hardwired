@@ -4,7 +4,7 @@ import pytest
 
 from hardwired import AcmeClient
 from hardwired.crypto import generate_rsa_key
-from hardwired.providers.test import TestProvider
+from hardwired.providers.pebble import PebbleProvider
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def registered_client(
     client = AcmeClient(
         directory_url=pebble_directory_url,
         account_key=generate_rsa_key(2048),
-        dns_provider=TestProvider(challtestsrv_url),
+        dns_provider=PebbleProvider(challtestsrv_url),
         ca_cert=pebble_ca_cert,
     )
     client.register_account(email="test@example.com")

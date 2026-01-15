@@ -4,7 +4,7 @@ import pytest
 
 from hardwired import AcmeClient
 from hardwired.crypto import generate_rsa_key
-from hardwired.providers.test import TestProvider
+from hardwired.providers.pebble import PebbleProvider
 
 
 @pytest.fixture
@@ -13,7 +13,7 @@ def client(pebble_directory_url: str, challtestsrv_url: str, pebble_ca_cert: str
     return AcmeClient(
         directory_url=pebble_directory_url,
         account_key=generate_rsa_key(2048),
-        dns_provider=TestProvider(challtestsrv_url),
+        dns_provider=PebbleProvider(challtestsrv_url),
         ca_cert=pebble_ca_cert,
     )
 
@@ -94,7 +94,7 @@ class TestAccountRegistration:
         client1 = AcmeClient(
             directory_url=pebble_directory_url,
             account_key=account_key,
-            dns_provider=TestProvider(challtestsrv_url),
+            dns_provider=PebbleProvider(challtestsrv_url),
             ca_cert=pebble_ca_cert,
         )
         client1.register_account(email="test@example.com")
@@ -104,7 +104,7 @@ class TestAccountRegistration:
         client2 = AcmeClient(
             directory_url=pebble_directory_url,
             account_key=account_key,
-            dns_provider=TestProvider(challtestsrv_url),
+            dns_provider=PebbleProvider(challtestsrv_url),
             ca_cert=pebble_ca_cert,
         )
         account2 = client2.register_account()
@@ -140,7 +140,7 @@ class TestBadNonceRetry:
         client = AcmeClient(
             directory_url=pebble_directory_url,
             account_key=generate_rsa_key(2048),
-            dns_provider=TestProvider(challtestsrv_url),
+            dns_provider=PebbleProvider(challtestsrv_url),
             ca_cert=pebble_ca_cert,
         )
 
@@ -167,7 +167,7 @@ class TestBadNonceRetry:
         client = AcmeClient(
             directory_url=pebble_directory_url,
             account_key=generate_rsa_key(2048),
-            dns_provider=TestProvider(challtestsrv_url),
+            dns_provider=PebbleProvider(challtestsrv_url),
             ca_cert=pebble_ca_cert,
         )
 
@@ -195,7 +195,7 @@ class TestAccountKeyRollover:
         client = AcmeClient(
             directory_url=pebble_directory_url,
             account_key=old_key,
-            dns_provider=TestProvider(challtestsrv_url),
+            dns_provider=PebbleProvider(challtestsrv_url),
             ca_cert=pebble_ca_cert,
         )
         client.register_account(email="rollover@example.com")
@@ -218,7 +218,7 @@ class TestAccountKeyRollover:
         client = AcmeClient(
             directory_url=pebble_directory_url,
             account_key=old_key,
-            dns_provider=TestProvider(challtestsrv_url),
+            dns_provider=PebbleProvider(challtestsrv_url),
             ca_cert=pebble_ca_cert,
         )
         client.register_account()
@@ -244,7 +244,7 @@ class TestAccountDeactivation:
         client = AcmeClient(
             directory_url=pebble_directory_url,
             account_key=key,
-            dns_provider=TestProvider(challtestsrv_url),
+            dns_provider=PebbleProvider(challtestsrv_url),
             ca_cert=pebble_ca_cert,
         )
         client.register_account(email="deactivate@example.com")

@@ -1,6 +1,6 @@
 """DNS providers for ACME challenge validation."""
 
 from hardwired.providers.base import DnsProvider
-from hardwired.providers.test import TestProvider
+from hardwired.providers.pebble import PebbleProvider
 
-__all__ = ["DnsProvider", "TestProvider"]
+__all__ = ["DnsProvider", "PebbleProvider"]

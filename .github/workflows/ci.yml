@@ -32,5 +32,23 @@ jobs:
       - name: Run type checker
         run: uv run ty check
 
+      - name: Start test services
+        run: docker compose -f docker-compose.test.yml up -d
+
+      - name: Wait for Pebble to be ready
+        run: |
+          echo "Waiting for Pebble ACME server..."
+          for i in {1..30}; do
+            if curl -sk https://localhost:14000/dir > /dev/null 2>&1; then
+              echo "Pebble is ready"
+              exit 0
+            fi
+            echo "Attempt $i/30 - waiting..."
+            sleep 2
+          done
+          echo "Pebble failed to start"
+          docker compose -f docker-compose.test.yml logs
+          exit 1
+
       - name: Run tests
         run: uv run pytest
