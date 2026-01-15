@@ -8,21 +8,30 @@ A Python library for automated SSL/TLS certificate management via the ACME proto
 pip install hardwired
 ```
 
+Or with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv add hardwired
+```
+
 ## Quick Start
 
 ```python
 from hardwired import AcmeClient
 from hardwired.crypto import generate_rsa_key
-from hardwired.providers.pebble import PebbleProvider
+from hardwired.providers import PowerDnsProvider
 
 # Generate an account key
 account_key = generate_rsa_key(2048)
 
-# Initialize client with DNS provider
+# Initialize client with your DNS provider
 client = AcmeClient(
     directory_url="https://acme-v02.api.letsencrypt.org/directory",
     account_key=account_key,
-    dns_provider=PebbleProvider(challtestsrv_url="http://localhost:8055"),
+    dns_provider=PowerDnsProvider(
+        api_url="http://your-powerdns-server:8081",
+        api_key="your-api-key",
+    ),
 )
 
 # Register account
@@ -45,6 +54,17 @@ print(cert.expires_at)         # Expiration timestamp
 - DNS-01 challenge support
 - Pluggable DNS provider architecture
 - Type hints on all public APIs
+
+## DNS Providers
+
+Hardwired uses DNS providers to manage TXT records for DNS-01 challenge validation.
+
+| Provider | Use Case | Documentation |
+|----------|----------|---------------|
+| PowerDNS | Production - self-hosted PowerDNS | [Setup Guide](docs/providers/powerdns.md) |
+| Pebble | Testing only | [Setup Guide](docs/providers/pebble.md) |
+
+See the [Provider Documentation](docs/providers/README.md) for details on configuring providers or [implementing your own](docs/providers/custom.md).
 
 ## Development
 
@@ -69,5 +89,5 @@ uv run pytest --cov=hardwired --cov-report=term-missing
 ```bash
 uv run ruff format    # Format code
 uv run ruff check     # Lint code
-uv run ty             # Type check
+uv run ty check       # Type check
 ```
