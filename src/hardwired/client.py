@@ -15,7 +15,7 @@ from hardwired.crypto import (
     pem_to_der,
     sign_jws,
 )
-from hardwired.exceptions import AcmeError
+from hardwired.exceptions import AcmeError, BadNonceError
 from hardwired.models import (
     Account,
     Authorization,
@@ -164,10 +164,14 @@ class AcmeClient:
         if response.status_code >= 400:
             try:
                 error_data = response.json()
-                error = AcmeError.from_response(error_data, response.status_code)
+                error = AcmeError.from_response(
+                    error_data,
+                    response.status_code,
+                    headers=dict(response.headers),
+                )
 
                 # Retry on bad nonce errors (pebble rejects 5% of good nonces)
-                if error.type == "urn:ietf:params:acme:error:badNonce" and _retry_count < 3:
+                if isinstance(error, BadNonceError) and _retry_count < 3:
                     # Get fresh nonce and retry
                     self._nonce = None  # Force fresh nonce
                     return self._signed_request(url, payload, use_kid, _retry_count + 1)

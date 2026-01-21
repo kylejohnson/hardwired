@@ -433,3 +433,212 @@ class TestAuthorizationError:
 
         assert isinstance(error, AcmeError)
         assert isinstance(error, AuthorizationError)
+
+
+# ============================================================================
+# New tests for enhanced ACME error handling with Retry-After support
+# ============================================================================
+
+from hardwired.exceptions import (
+    BadNonceError,
+    CAAError,
+    DnsValidationError,
+    RateLimitError,
+    ServerInternalError,
+)
+
+
+class TestRetryAfterParsing:
+    """Tests for Retry-After header parsing."""
+
+    def test_parse_retry_after_seconds(self):
+        """Parse Retry-After as integer seconds."""
+        result = AcmeError._parse_retry_after("120")
+        assert result == 120
+
+    def test_parse_retry_after_http_date(self):
+        """Parse Retry-After as HTTP-date."""
+        from datetime import datetime, timedelta, timezone
+        from email.utils import format_datetime
+
+        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        http_date = format_datetime(future, usegmt=True)
+        result = AcmeError._parse_retry_after(http_date)
+        assert 3500 < result < 3700  # ~1 hour
+
+    def test_parse_retry_after_none(self):
+        """Return None for missing header."""
+        result = AcmeError._parse_retry_after(None)
+        assert result is None
+
+    def test_parse_retry_after_invalid(self):
+        """Return None for invalid value."""
+        result = AcmeError._parse_retry_after("invalid")
+        assert result is None
+
+
+class TestAcmeErrorWithHeaders:
+    """Tests for AcmeError with header support."""
+
+    def test_from_response_with_retry_after(self):
+        """Create error with Retry-After header."""
+        error_response = {
+            "type": "urn:ietf:params:acme:error:rateLimited",
+            "detail": "too many requests",
+        }
+        headers = {"Retry-After": "3600"}
+        error = AcmeError.from_response(error_response, 429, headers)
+
+        assert error.retry_after == 3600
+
+    def test_get_retry_seconds_with_value(self):
+        """get_retry_seconds returns retry_after when set."""
+        error = AcmeError(
+            type="test", detail="test", status_code=429, retry_after=1800
+        )
+        assert error.get_retry_seconds(default=3600) == 1800
+
+    def test_get_retry_seconds_default(self):
+        """get_retry_seconds returns default when retry_after is None."""
+        error = AcmeError(
+            type="test", detail="test", status_code=429, retry_after=None
+        )
+        assert error.get_retry_seconds(default=3600) == 3600
+
+
+class TestRateLimitError:
+    """Tests for RateLimitError exception."""
+
+    def test_rate_limit_error_is_acme_error(self):
+        """RateLimitError should be subclass of AcmeError."""
+        error = RateLimitError(
+            type="urn:ietf:params:acme:error:rateLimited",
+            detail="too many certificates",
+            status_code=429,
+        )
+        assert isinstance(error, AcmeError)
+        assert isinstance(error, RateLimitError)
+
+    def test_rate_limit_type_duplicate_certificate(self):
+        """Detect duplicate certificate rate limit."""
+        error = RateLimitError(
+            type="urn:ietf:params:acme:error:rateLimited",
+            detail="too many certificates (5) already issued for this exact set of domains",
+            status_code=429,
+        )
+        assert error.rate_limit_type == "duplicate_certificate"
+
+    def test_rate_limit_type_per_domain(self):
+        """Detect per-domain rate limit."""
+        error = RateLimitError(
+            type="urn:ietf:params:acme:error:rateLimited",
+            detail="too many certificates already issued for example.com",
+            status_code=429,
+        )
+        assert error.rate_limit_type == "certificates_per_domain"
+
+    def test_rate_limit_type_orders(self):
+        """Detect orders per account rate limit."""
+        error = RateLimitError(
+            type="urn:ietf:params:acme:error:rateLimited",
+            detail="too many new orders recently",
+            status_code=429,
+        )
+        assert error.rate_limit_type == "orders_per_account"
+
+    def test_from_response_creates_rate_limit_error(self):
+        """from_response routes rateLimited to RateLimitError."""
+        error_response = {
+            "type": "urn:ietf:params:acme:error:rateLimited",
+            "detail": "too many requests",
+        }
+        error = AcmeError.from_response(error_response, 429)
+        assert isinstance(error, RateLimitError)
+
+
+class TestDnsValidationError:
+    """Tests for DnsValidationError exception."""
+
+    def test_dns_validation_error_is_acme_error(self):
+        """DnsValidationError should be subclass of AcmeError."""
+        error = DnsValidationError(
+            type="urn:ietf:params:acme:error:dns",
+            detail="DNS problem",
+            status_code=400,
+        )
+        assert isinstance(error, AcmeError)
+
+    def test_from_response_creates_dns_error(self):
+        """from_response routes dns error to DnsValidationError."""
+        error_response = {
+            "type": "urn:ietf:params:acme:error:dns",
+            "detail": "DNS problem",
+        }
+        error = AcmeError.from_response(error_response, 400)
+        assert isinstance(error, DnsValidationError)
+
+
+class TestCAAError:
+    """Tests for CAAError exception."""
+
+    def test_caa_error_is_acme_error(self):
+        """CAAError should be subclass of AcmeError."""
+        error = CAAError(
+            type="urn:ietf:params:acme:error:caa",
+            detail="CAA record forbids",
+            status_code=403,
+        )
+        assert isinstance(error, AcmeError)
+
+    def test_from_response_creates_caa_error(self):
+        """from_response routes caa error to CAAError."""
+        error_response = {
+            "type": "urn:ietf:params:acme:error:caa",
+            "detail": "CAA record forbids",
+        }
+        error = AcmeError.from_response(error_response, 403)
+        assert isinstance(error, CAAError)
+
+
+class TestServerInternalError:
+    """Tests for ServerInternalError exception."""
+
+    def test_server_internal_error_is_acme_error(self):
+        """ServerInternalError should be subclass of AcmeError."""
+        error = ServerInternalError(
+            type="urn:ietf:params:acme:error:serverInternal",
+            detail="Internal error",
+            status_code=500,
+        )
+        assert isinstance(error, AcmeError)
+
+    def test_from_response_creates_server_internal_error(self):
+        """from_response routes serverInternal to ServerInternalError."""
+        error_response = {
+            "type": "urn:ietf:params:acme:error:serverInternal",
+            "detail": "Internal error",
+        }
+        error = AcmeError.from_response(error_response, 500)
+        assert isinstance(error, ServerInternalError)
+
+
+class TestBadNonceError:
+    """Tests for BadNonceError exception."""
+
+    def test_bad_nonce_error_is_acme_error(self):
+        """BadNonceError should be subclass of AcmeError."""
+        error = BadNonceError(
+            type="urn:ietf:params:acme:error:badNonce",
+            detail="Bad nonce",
+            status_code=400,
+        )
+        assert isinstance(error, AcmeError)
+
+    def test_from_response_creates_bad_nonce_error(self):
+        """from_response routes badNonce to BadNonceError."""
+        error_response = {
+            "type": "urn:ietf:params:acme:error:badNonce",
+            "detail": "Bad nonce",
+        }
+        error = AcmeError.from_response(error_response, 400)
+        assert isinstance(error, BadNonceError)
