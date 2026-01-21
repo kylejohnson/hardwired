@@ -34,7 +34,8 @@ class PowerDnsProvider(DnsProvider):
         """Find the apex zone containing the given domain.
 
         Iterates through domain parts from most specific to least
-        to find the authoritative zone in PowerDNS.
+        to find the authoritative zone in PowerDNS by testing each
+        candidate zone URL.
 
         Args:
             domain: The full domain name to find zone for.
@@ -47,22 +48,22 @@ class PowerDnsProvider(DnsProvider):
         """
         headers = {"X-API-Key": self.api_key}
 
-        response = httpx.get(
-            f"{self.api_url}/api/v1/servers/{self.server_id}/zones",
-            headers=headers,
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-        zones = {z["name"] for z in response.json()}
-
-        # Normalize domain (ensure trailing dot)
+        # Normalize domain (ensure trailing dot for zone name)
         domain = domain.rstrip(".") + "."
 
         # Try each parent domain level
         parts = domain.rstrip(".").split(".")
         for i in range(len(parts)):
             candidate = ".".join(parts[i:]) + "."
-            if candidate in zones:
+
+            # Test if this zone exists by requesting it directly
+            response = httpx.get(
+                f"{self.api_url}/api/v1/servers/{self.server_id}/zones/{candidate}",
+                headers=headers,
+                timeout=self.timeout,
+            )
+
+            if response.status_code == 200:
                 return candidate
 
         raise ValueError(f"No zone found for domain: {domain}")
