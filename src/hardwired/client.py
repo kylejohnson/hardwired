@@ -7,7 +7,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
-from hardwired._logging import Timer, get_logger
+from hardwired._logging import Timer, get_domain_extra, get_logger, reset_domains, set_domains
 from hardwired.crypto import (
     base64url_encode,
     create_csr,
@@ -102,7 +102,10 @@ class AcmeClient:
         if self._nonce:
             nonce = self._nonce
             self._nonce = None
-            logger.debug("Using cached nonce", extra={"nonce": nonce[:16] + "..."})
+            logger.debug(
+                "Using cached nonce",
+                extra={"nonce": nonce[:16] + "...", **get_domain_extra()},
+            )
             return nonce
 
         response = self._http.head(self.directory.new_nonce)
@@ -110,7 +113,11 @@ class AcmeClient:
         nonce = response.headers["Replay-Nonce"]
         logger.debug(
             "Fetched fresh nonce",
-            extra={"url": self.directory.new_nonce, "nonce": nonce[:16] + "..."},
+            extra={
+                "url": self.directory.new_nonce,
+                "nonce": nonce[:16] + "...",
+                **get_domain_extra(),
+            },
         )
         return nonce
 
@@ -173,6 +180,7 @@ class AcmeClient:
                 "url": url,
                 "status_code": response.status_code,
                 "elapsed_ms": round(timer.elapsed_ms, 2),
+                **get_domain_extra(),
             },
         )
 
@@ -199,6 +207,7 @@ class AcmeClient:
                             "url": url,
                             "attempt": _retry_count + 1,
                             "max_attempts": 3,
+                            **get_domain_extra(),
                         },
                     )
                     return self._signed_request(url, payload, use_kid, _retry_count + 1)
@@ -210,6 +219,7 @@ class AcmeClient:
                         "status_code": response.status_code,
                         "error_type": error.type,
                         "detail": error.detail,
+                        **get_domain_extra(),
                     },
                 )
                 raise error
@@ -219,6 +229,7 @@ class AcmeClient:
                     extra={
                         "url": url,
                         "status_code": response.status_code,
+                        **get_domain_extra(),
                     },
                 )
                 raise AcmeError(
@@ -516,6 +527,7 @@ class AcmeClient:
                     "status": challenge.status,
                     "attempt": attempt + 1,
                     "max_attempts": self.MAX_POLL_ATTEMPTS,
+                    **get_domain_extra(),
                 },
             )
 
@@ -560,6 +572,7 @@ class AcmeClient:
                     "status": order.status,
                     "attempt": attempt + 1,
                     "max_attempts": self.MAX_POLL_ATTEMPTS,
+                    **get_domain_extra(),
                 },
             )
 
@@ -692,86 +705,91 @@ class AcmeClient:
         Returns:
             CertificateResult with certificate_pem, private_key_pem, and expires_at.
         """
-        logger.info(
-            "Starting certificate issuance",
-            extra={"domains": domains},
-        )
-
-        # Generate CSR if not provided
-        private_key_pem: str | None = None
-        if csr is None:
-            cert_key = rsa.generate_private_key(
-                public_exponent=65537,
-                key_size=2048,
+        # Set domain context for all nested log calls
+        token = set_domains(domains)
+        try:
+            logger.info(
+                "Starting certificate issuance",
+                extra={"domains": domains},
             )
-            csr = create_csr(cert_key, domains)
-            private_key_pem = cert_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption(),
-            ).decode()
 
-        # Create order
-        order = self.create_order(domains)
-        order_url = getattr(order, "_url", None)
-
-        # Complete all authorizations
-        authorizations = self.fetch_authorizations(order)
-        for authz in authorizations:
-            if authz.status != "valid":
-                challenge = self.get_challenge(authz, "dns-01")
-                self.complete_challenge(challenge, authz)
-
-        # Poll order until ready
-        if order_url:
-            order = self._poll_order(order_url)
-
-        # Finalize order
-        order = self.finalize_order(order, csr)
-
-        # Poll for certificate
-        if order_url and not order.certificate:
-            for _ in range(self.MAX_POLL_ATTEMPTS):
-                import time
-
-                time.sleep(self.POLL_INTERVAL)
-                response = self._signed_request(order_url, "")
-                order = Order.model_validate(response.json())
-                if order.certificate:
-                    break
-
-        # Download certificate
-        certificate_pem = self.download_certificate(order)
-
-        # Parse certificate to get expiration
-        cert = x509.load_pem_x509_certificate(certificate_pem.encode())
-        expires_at = cert.not_valid_after_utc
-
-        logger.info(
-            "Certificate issued",
-            extra={
-                "domains": domains,
-                "expires_at": expires_at.isoformat(),
-            },
-        )
-
-        # Build authorization info for deactivation support
-        authz_info_list: list[AuthorizationInfo] = []
-        for authz in authorizations:
-            authz_url = getattr(authz, "_url", None)
-            if authz_url and authz.expires:
-                authz_info_list.append(
-                    AuthorizationInfo(
-                        url=authz_url,
-                        domain=authz.identifier.value,
-                        expires_at=authz.expires,
-                    )
+            # Generate CSR if not provided
+            private_key_pem: str | None = None
+            if csr is None:
+                cert_key = rsa.generate_private_key(
+                    public_exponent=65537,
+                    key_size=2048,
                 )
+                csr = create_csr(cert_key, domains)
+                private_key_pem = cert_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption(),
+                ).decode()
 
-        return CertificateResult(
-            certificate_pem=certificate_pem,
-            private_key_pem=private_key_pem,
-            expires_at=expires_at,
-            domains=domains,
-            authorizations=authz_info_list,
-        )
+            # Create order
+            order = self.create_order(domains)
+            order_url = getattr(order, "_url", None)
+
+            # Complete all authorizations
+            authorizations = self.fetch_authorizations(order)
+            for authz in authorizations:
+                if authz.status != "valid":
+                    challenge = self.get_challenge(authz, "dns-01")
+                    self.complete_challenge(challenge, authz)
+
+            # Poll order until ready
+            if order_url:
+                order = self._poll_order(order_url)
+
+            # Finalize order
+            order = self.finalize_order(order, csr)
+
+            # Poll for certificate
+            if order_url and not order.certificate:
+                for _ in range(self.MAX_POLL_ATTEMPTS):
+                    import time
+
+                    time.sleep(self.POLL_INTERVAL)
+                    response = self._signed_request(order_url, "")
+                    order = Order.model_validate(response.json())
+                    if order.certificate:
+                        break
+
+            # Download certificate
+            certificate_pem = self.download_certificate(order)
+
+            # Parse certificate to get expiration
+            cert = x509.load_pem_x509_certificate(certificate_pem.encode())
+            expires_at = cert.not_valid_after_utc
+
+            logger.info(
+                "Certificate issued",
+                extra={
+                    "domains": domains,
+                    "expires_at": expires_at.isoformat(),
+                },
+            )
+
+            # Build authorization info for deactivation support
+            authz_info_list: list[AuthorizationInfo] = []
+            for authz in authorizations:
+                authz_url = getattr(authz, "_url", None)
+                if authz_url and authz.expires:
+                    authz_info_list.append(
+                        AuthorizationInfo(
+                            url=authz_url,
+                            domain=authz.identifier.value,
+                            expires_at=authz.expires,
+                        )
+                    )
+
+            return CertificateResult(
+                certificate_pem=certificate_pem,
+                private_key_pem=private_key_pem,
+                expires_at=expires_at,
+                domains=domains,
+                authorizations=authz_info_list,
+            )
+        finally:
+            reset_domains(token)

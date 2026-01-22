@@ -4,7 +4,13 @@ import logging
 
 import pytest
 
-from hardwired._logging import Timer, get_logger
+from hardwired._logging import (
+    Timer,
+    get_domain_extra,
+    get_logger,
+    reset_domains,
+    set_domains,
+)
 
 
 class TestGetLogger:
@@ -135,3 +141,87 @@ class TestLogCapture:
         assert len(log_capture.records) == 2
         log_capture.clear()
         assert len(log_capture.records) == 0
+
+
+class TestDomainContext:
+    """Tests for domain context variable functions."""
+
+    def test_get_domain_extra_returns_empty_when_no_context(self) -> None:
+        """Verify get_domain_extra returns empty dict when no context is set."""
+        result = get_domain_extra()
+        assert result == {}
+
+    def test_set_domains_single_domain(self) -> None:
+        """Verify single domain returns 'domain' key."""
+        token = set_domains(["example.com"])
+        try:
+            result = get_domain_extra()
+            assert result == {"domain": "example.com"}
+        finally:
+            reset_domains(token)
+
+    def test_set_domains_multiple_domains(self) -> None:
+        """Verify multiple domains returns 'domains' key."""
+        token = set_domains(["example.com", "www.example.com"])
+        try:
+            result = get_domain_extra()
+            assert result == {"domains": ["example.com", "www.example.com"]}
+        finally:
+            reset_domains(token)
+
+    def test_reset_domains_restores_previous_context(self) -> None:
+        """Verify reset_domains properly restores previous context."""
+        # Set outer context
+        outer_token = set_domains(["outer.com"])
+        try:
+            # Set inner context
+            inner_token = set_domains(["inner.com"])
+            assert get_domain_extra() == {"domain": "inner.com"}
+
+            # Reset inner context
+            reset_domains(inner_token)
+            assert get_domain_extra() == {"domain": "outer.com"}
+        finally:
+            reset_domains(outer_token)
+
+        # After all resets, should be empty
+        assert get_domain_extra() == {}
+
+    def test_set_domains_none_returns_empty(self) -> None:
+        """Verify setting domains to None returns empty dict."""
+        token = set_domains(None)
+        try:
+            result = get_domain_extra()
+            assert result == {}
+        finally:
+            reset_domains(token)
+
+    def test_domain_context_in_log_extra(self, log_capture) -> None:
+        """Verify domain context integrates with log extra fields."""
+        logger = get_logger("hardwired.test")
+        token = set_domains(["test.example.com"])
+        try:
+            logger.info("Test message", extra={**get_domain_extra()})
+        finally:
+            reset_domains(token)
+
+        records = log_capture.get_records(logging.INFO)
+        assert len(records) == 1
+        assert records[0].domain == "test.example.com"
+
+    def test_domain_context_with_other_extra_fields(self, log_capture) -> None:
+        """Verify domain context merges with other extra fields."""
+        logger = get_logger("hardwired.test")
+        token = set_domains(["merge.example.com"])
+        try:
+            logger.info(
+                "Test message",
+                extra={"url": "https://example.com", **get_domain_extra()},
+            )
+        finally:
+            reset_domains(token)
+
+        records = log_capture.get_records(logging.INFO)
+        assert len(records) == 1
+        assert records[0].domain == "merge.example.com"
+        assert records[0].url == "https://example.com"

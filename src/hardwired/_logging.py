@@ -2,10 +2,49 @@
 
 import logging
 import time
+from contextvars import ContextVar, Token
 
 # NullHandler on root logger (library best practice)
 _root = logging.getLogger("hardwired")
 _root.addHandler(logging.NullHandler())
+
+# Context variable for domain tracking in concurrent operations
+_current_domains: ContextVar[list[str] | None] = ContextVar("current_domains", default=None)
+
+
+def set_domains(domains: list[str] | None) -> Token[list[str] | None]:
+    """Set current domains for logging context.
+
+    Args:
+        domains: List of domains being processed.
+
+    Returns:
+        Token to reset the context.
+    """
+    return _current_domains.set(domains)
+
+
+def reset_domains(token: Token[list[str] | None]) -> None:
+    """Reset domains context.
+
+    Args:
+        token: Token from set_domains() call.
+    """
+    _current_domains.reset(token)
+
+
+def get_domain_extra() -> dict[str, list[str] | str]:
+    """Get domain info for log extra fields.
+
+    Returns:
+        Dict with 'domain' (single) or 'domains' (multiple), or empty dict.
+    """
+    domains = _current_domains.get()
+    if domains is None:
+        return {}
+    if len(domains) == 1:
+        return {"domain": domains[0]}
+    return {"domains": domains}
 
 
 def get_logger(name: str) -> logging.Logger:

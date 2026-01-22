@@ -80,21 +80,25 @@ class PowerDnsProvider(DnsProvider):
 
         raise ValueError(f"No zone found for domain: {domain}")
 
-    def _handle_response(self, response: httpx.Response, zone: str) -> None:
+    def _handle_response(
+        self, response: httpx.Response, zone: str, domain: str | None = None
+    ) -> None:
         """Handle PowerDNS API response status codes.
 
         Args:
             response: The httpx Response object.
             zone: The zone name (for error messages).
+            domain: The domain being processed (for logging context).
 
         Raises:
             ValueError: For API errors with descriptive messages.
         """
+        extra: dict = {"zone": zone, "status_code": response.status_code}
+        if domain:
+            extra["domain"] = domain
+
         if response.status_code == 204:
-            logger.debug(
-                "PowerDNS API request successful",
-                extra={"zone": zone, "status_code": response.status_code},
-            )
+            logger.debug("PowerDNS API request successful", extra=extra)
             return  # Success
 
         # Try to extract error detail from response body
@@ -115,10 +119,8 @@ class PowerDnsProvider(DnsProvider):
             response.status_code,
             f"Unexpected error ({response.status_code}): {detail}",
         )
-        logger.error(
-            "PowerDNS API error",
-            extra={"zone": zone, "status_code": response.status_code, "detail": detail},
-        )
+        extra["detail"] = detail
+        logger.error("PowerDNS API error", extra=extra)
         raise ValueError(message)
 
     def _common_dns_record(self, domain: str, token: str, changetype: str) -> None:
@@ -161,7 +163,7 @@ class PowerDnsProvider(DnsProvider):
             json=payload,
             timeout=self.timeout,
         )
-        self._handle_response(response, zone)
+        self._handle_response(response, zone, domain)
 
     def create_txt_record(self, domain: str, token: str) -> None:
         """Create a TXT record via PowerDNS API.
