@@ -16,7 +16,10 @@
       "Bash(uv:*)",
       "WebFetch(domain:doc.powerdns.com)",
       "WebFetch(domain:pypi.org)",
-      "WebFetch(domain:files.pythonhosted.org)"
+      "WebFetch(domain:files.pythonhosted.org)",
+      "Skill(test-unit)",
+      "Skill(test-integration)",
+      "Bash(tree:*)"
     ]
   },
   "sandbox": {

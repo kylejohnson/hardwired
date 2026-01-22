@@ -10,13 +10,21 @@ from hardwired.exceptions import (
 )
 from hardwired.models import (
     Account,
+    AccountStatus,
+    AcmeErrorType,
     Authorization,
     AuthorizationInfo,
+    AuthorizationStatus,
     CertificateResult,
     Challenge,
+    ChallengeStatus,
+    ChallengeType,
     Directory,
     Identifier,
+    IdentifierType,
     Order,
+    OrderStatus,
+    RevocationReason,
 )
 
 
@@ -341,6 +349,173 @@ class TestCertificateResultModel:
         assert len(result.authorizations) == 1
         assert result.authorizations[0].domain == "example.com"
         assert result.authorizations[0].url == "https://acme.example/authz/789"
+
+
+# =============================================================================
+# Tests for ACME Protocol Enums
+# =============================================================================
+
+
+class TestRevocationReason:
+    """Tests for RevocationReason enum."""
+
+    def test_revocation_reason_values(self):
+        """RevocationReason should have correct RFC 5280 values."""
+        assert RevocationReason.UNSPECIFIED == 0
+        assert RevocationReason.KEY_COMPROMISE == 1
+        assert RevocationReason.CA_COMPROMISE == 2
+        assert RevocationReason.AFFILIATION_CHANGED == 3
+        assert RevocationReason.SUPERSEDED == 4
+        assert RevocationReason.CESSATION_OF_OPERATION == 5
+        assert RevocationReason.CERTIFICATE_HOLD == 6
+
+    def test_revocation_reason_is_int(self):
+        """RevocationReason values should be usable as integers."""
+        assert int(RevocationReason.KEY_COMPROMISE) == 1
+        assert RevocationReason.CESSATION_OF_OPERATION + 1 == 6
+
+
+class TestAcmeErrorType:
+    """Tests for AcmeErrorType enum."""
+
+    def test_acme_error_type_values(self):
+        """AcmeErrorType should have correct URN values."""
+        assert AcmeErrorType.BAD_NONCE == "urn:ietf:params:acme:error:badNonce"
+        assert AcmeErrorType.RATE_LIMITED == "urn:ietf:params:acme:error:rateLimited"
+        assert AcmeErrorType.UNAUTHORIZED == "urn:ietf:params:acme:error:unauthorized"
+        assert AcmeErrorType.DNS == "urn:ietf:params:acme:error:dns"
+        assert AcmeErrorType.CAA == "urn:ietf:params:acme:error:caa"
+        assert AcmeErrorType.MALFORMED == "urn:ietf:params:acme:error:malformed"
+
+    def test_acme_error_type_string_comparison(self):
+        """AcmeErrorType values should compare equal to strings."""
+        assert AcmeErrorType.BAD_NONCE == "urn:ietf:params:acme:error:badNonce"
+        assert "urn:ietf:params:acme:error:rateLimited" == AcmeErrorType.RATE_LIMITED
+
+
+class TestChallengeStatus:
+    """Tests for ChallengeStatus enum."""
+
+    def test_challenge_status_values(self):
+        """ChallengeStatus should have correct RFC 8555 values."""
+        assert ChallengeStatus.PENDING == "pending"
+        assert ChallengeStatus.PROCESSING == "processing"
+        assert ChallengeStatus.VALID == "valid"
+        assert ChallengeStatus.INVALID == "invalid"
+
+
+class TestAuthorizationStatus:
+    """Tests for AuthorizationStatus enum."""
+
+    def test_authorization_status_values(self):
+        """AuthorizationStatus should have correct RFC 8555 values."""
+        assert AuthorizationStatus.PENDING == "pending"
+        assert AuthorizationStatus.VALID == "valid"
+        assert AuthorizationStatus.INVALID == "invalid"
+        assert AuthorizationStatus.DEACTIVATED == "deactivated"
+        assert AuthorizationStatus.EXPIRED == "expired"
+        assert AuthorizationStatus.REVOKED == "revoked"
+
+
+class TestOrderStatus:
+    """Tests for OrderStatus enum."""
+
+    def test_order_status_values(self):
+        """OrderStatus should have correct RFC 8555 values."""
+        assert OrderStatus.PENDING == "pending"
+        assert OrderStatus.READY == "ready"
+        assert OrderStatus.PROCESSING == "processing"
+        assert OrderStatus.VALID == "valid"
+        assert OrderStatus.INVALID == "invalid"
+
+
+class TestAccountStatus:
+    """Tests for AccountStatus enum."""
+
+    def test_account_status_values(self):
+        """AccountStatus should have correct RFC 8555 values."""
+        assert AccountStatus.VALID == "valid"
+        assert AccountStatus.DEACTIVATED == "deactivated"
+        assert AccountStatus.REVOKED == "revoked"
+
+
+class TestChallengeType:
+    """Tests for ChallengeType enum."""
+
+    def test_challenge_type_values(self):
+        """ChallengeType should have correct RFC 8555 values."""
+        assert ChallengeType.HTTP_01 == "http-01"
+        assert ChallengeType.DNS_01 == "dns-01"
+
+
+class TestIdentifierType:
+    """Tests for IdentifierType enum."""
+
+    def test_identifier_type_values(self):
+        """IdentifierType should have correct RFC 8555 values."""
+        assert IdentifierType.DNS == "dns"
+
+
+class TestModelEnumCoercion:
+    """Tests for Pydantic model enum coercion from strings."""
+
+    def test_account_status_coercion(self):
+        """Account should coerce string status to AccountStatus enum."""
+        data = {"status": "valid"}
+        account = Account.model_validate(data)
+        assert account.status == AccountStatus.VALID
+        assert isinstance(account.status, AccountStatus)
+
+    def test_identifier_type_coercion(self):
+        """Identifier should coerce string type to IdentifierType enum."""
+        data = {"type": "dns", "value": "example.com"}
+        identifier = Identifier.model_validate(data)
+        assert identifier.type == IdentifierType.DNS
+        assert isinstance(identifier.type, IdentifierType)
+
+    def test_challenge_type_and_status_coercion(self):
+        """Challenge should coerce string type and status to enums."""
+        data = {
+            "type": "dns-01",
+            "url": "https://example.com/chall/123",
+            "status": "pending",
+            "token": "abc123",
+        }
+        challenge = Challenge.model_validate(data)
+        assert challenge.type == ChallengeType.DNS_01
+        assert challenge.status == ChallengeStatus.PENDING
+        assert isinstance(challenge.type, ChallengeType)
+        assert isinstance(challenge.status, ChallengeStatus)
+
+    def test_authorization_status_coercion(self):
+        """Authorization should coerce string status to AuthorizationStatus enum."""
+        data = {
+            "status": "pending",
+            "identifier": {"type": "dns", "value": "example.com"},
+            "challenges": [
+                {
+                    "type": "dns-01",
+                    "url": "https://example.com/chall/123",
+                    "status": "pending",
+                    "token": "abc123",
+                },
+            ],
+        }
+        authz = Authorization.model_validate(data)
+        assert authz.status == AuthorizationStatus.PENDING
+        assert isinstance(authz.status, AuthorizationStatus)
+
+    def test_order_status_coercion(self):
+        """Order should coerce string status to OrderStatus enum."""
+        data = {
+            "status": "ready",
+            "identifiers": [{"type": "dns", "value": "example.com"}],
+            "authorizations": ["https://example.com/authz/123"],
+            "finalize": "https://example.com/order/123/finalize",
+        }
+        order = Order.model_validate(data)
+        assert order.status == OrderStatus.READY
+        assert isinstance(order.status, OrderStatus)
 
 
 class TestAcmeError:

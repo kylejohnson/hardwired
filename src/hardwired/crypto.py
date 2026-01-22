@@ -69,7 +69,8 @@ def load_private_key_pem(pem_data: str, password: bytes | None = None) -> Privat
             password=password,
         )
     except ValueError as e:
-        if "password" in str(e).lower() or "decrypt" in str(e).lower():
+        error_msg = str(e).lower()
+        if "password" in error_msg or "decrypt" in error_msg or "asn.1" in error_msg:
             raise ValueError("Invalid password or encrypted key requires password") from e
         raise ValueError(f"Invalid PEM data: {e}") from e
     except TypeError as e:

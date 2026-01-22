@@ -19,12 +19,18 @@ from hardwired.crypto import (
 from hardwired.exceptions import AcmeError, BadNonceError
 from hardwired.models import (
     Account,
+    AcmeErrorType,
     Authorization,
     AuthorizationInfo,
+    AuthorizationStatus,
     CertificateResult,
     Challenge,
+    ChallengeStatus,
+    ChallengeType,
     Directory,
     Order,
+    OrderStatus,
+    RevocationReason,
 )
 from hardwired.providers.base import DnsProvider
 
@@ -417,13 +423,15 @@ class AcmeClient:
         return Authorization.model_validate(response.json())
 
     def get_challenge(
-        self, authorization: Authorization, challenge_type: str = "dns-01"
+        self,
+        authorization: Authorization,
+        challenge_type: ChallengeType | str = ChallengeType.DNS_01,
     ) -> Challenge:
         """Get a specific challenge from an authorization.
 
         Args:
             authorization: The authorization containing challenges.
-            challenge_type: Type of challenge to get (e.g., "dns-01").
+            challenge_type: Type of challenge to get (e.g., ChallengeType.DNS_01).
 
         Returns:
             The Challenge resource.
@@ -531,28 +539,28 @@ class AcmeClient:
                 },
             )
 
-            if challenge.status == "valid":
+            if challenge.status == ChallengeStatus.VALID:
                 return challenge
-            elif challenge.status == "invalid":
+            elif challenge.status == ChallengeStatus.INVALID:
                 error_detail = "Challenge validation failed"
                 if challenge.error:
                     error_detail = challenge.error.get("detail", error_detail)
                 raise AcmeError(
-                    type="urn:ietf:params:acme:error:unauthorized",
+                    type=AcmeErrorType.UNAUTHORIZED,
                     detail=error_detail,
                     status_code=403,
                 )
-            elif challenge.status in ("pending", "processing"):
+            elif challenge.status in (ChallengeStatus.PENDING, ChallengeStatus.PROCESSING):
                 time.sleep(self.POLL_INTERVAL)
             else:
                 raise AcmeError(
-                    type="urn:ietf:params:acme:error:serverInternal",
+                    type=AcmeErrorType.SERVER_INTERNAL,
                     detail=f"Unexpected challenge status: {challenge.status}",
                     status_code=500,
                 )
 
         raise AcmeError(
-            type="urn:ietf:params:acme:error:serverInternal",
+            type=AcmeErrorType.SERVER_INTERNAL,
             detail="Challenge polling timed out",
             status_code=500,
         )
@@ -576,28 +584,28 @@ class AcmeClient:
                 },
             )
 
-            if order.status == "ready" or order.status == "valid":
+            if order.status in (OrderStatus.READY, OrderStatus.VALID):
                 return order
-            elif order.status == "invalid":
+            elif order.status == OrderStatus.INVALID:
                 error_detail = "Order is invalid"
                 if order.error:
                     error_detail = order.error.get("detail", error_detail)
                 raise AcmeError(
-                    type="urn:ietf:params:acme:error:orderNotReady",
+                    type=AcmeErrorType.ORDER_NOT_READY,
                     detail=error_detail,
                     status_code=403,
                 )
-            elif order.status in ("pending", "processing"):
+            elif order.status in (OrderStatus.PENDING, OrderStatus.PROCESSING):
                 time.sleep(self.POLL_INTERVAL)
             else:
                 raise AcmeError(
-                    type="urn:ietf:params:acme:error:serverInternal",
+                    type=AcmeErrorType.SERVER_INTERNAL,
                     detail=f"Unexpected order status: {order.status}",
                     status_code=500,
                 )
 
         raise AcmeError(
-            type="urn:ietf:params:acme:error:serverInternal",
+            type=AcmeErrorType.SERVER_INTERNAL,
             detail="Order polling timed out",
             status_code=500,
         )
@@ -648,20 +656,21 @@ class AcmeClient:
     def revoke_certificate(
         self,
         certificate_pem: str,
-        reason: int | None = None,
+        reason: RevocationReason | int | None = None,
     ) -> None:
         """Revoke a certificate (RFC 8555 Section 7.6).
 
         Args:
             certificate_pem: The PEM-encoded certificate to revoke.
-            reason: Optional revocation reason code (RFC 5280 Section 5.3.1):
-                    0 = unspecified
-                    1 = keyCompromise
-                    2 = cACompromise
-                    3 = affiliationChanged
-                    4 = superseded
-                    5 = cessationOfOperation
-                    6 = certificateHold
+            reason: Optional revocation reason (RFC 5280 Section 5.3.1).
+                    Can be a RevocationReason enum or int:
+                    - RevocationReason.UNSPECIFIED (0)
+                    - RevocationReason.KEY_COMPROMISE (1)
+                    - RevocationReason.CA_COMPROMISE (2)
+                    - RevocationReason.AFFILIATION_CHANGED (3)
+                    - RevocationReason.SUPERSEDED (4)
+                    - RevocationReason.CESSATION_OF_OPERATION (5)
+                    - RevocationReason.CERTIFICATE_HOLD (6)
 
         Raises:
             AcmeError: If revocation fails.
@@ -671,7 +680,7 @@ class AcmeClient:
             der_bytes = pem_to_der(certificate_pem)
         except ValueError as e:
             raise AcmeError(
-                type="urn:ietf:params:acme:error:malformed",
+                type=AcmeErrorType.MALFORMED,
                 detail=f"Invalid certificate PEM: {e}",
                 status_code=400,
             ) from e
@@ -680,7 +689,7 @@ class AcmeClient:
         # Build payload
         payload: dict[str, str | int] = {"certificate": cert_b64}
         if reason is not None:
-            payload["reason"] = reason
+            payload["reason"] = int(reason)
 
         # POST to revokeCert endpoint
         self._signed_request(self.directory.revoke_cert, payload)
@@ -734,8 +743,8 @@ class AcmeClient:
             # Complete all authorizations
             authorizations = self.fetch_authorizations(order)
             for authz in authorizations:
-                if authz.status != "valid":
-                    challenge = self.get_challenge(authz, "dns-01")
+                if authz.status != AuthorizationStatus.VALID:
+                    challenge = self.get_challenge(authz, ChallengeType.DNS_01)
                     self.complete_challenge(challenge, authz)
 
             # Poll order until ready

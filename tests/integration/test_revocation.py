@@ -5,6 +5,7 @@ import pytest
 from hardwired import AcmeClient
 from hardwired.crypto import generate_rsa_key
 from hardwired.exceptions import AcmeError
+from hardwired.models import RevocationReason
 from hardwired.providers.pebble import PebbleProvider
 
 
@@ -40,8 +41,8 @@ class TestCertificateRevocation:
             domains=["revoke-reason.example.com", "*.revoke-reason.example.com"]
         )
 
-        # Revoke with reason=5 (cessationOfOperation)
-        client.revoke_certificate(result.certificate_pem, reason=5)
+        # Revoke with RevocationReason.CESSATION_OF_OPERATION
+        client.revoke_certificate(result.certificate_pem, reason=RevocationReason.CESSATION_OF_OPERATION)
 
     def test_revoke_certificate_key_compromise(self, client: AcmeClient):
         """Should revoke certificate with keyCompromise reason code."""
@@ -49,8 +50,8 @@ class TestCertificateRevocation:
             domains=["revoke-keycomp.example.com", "*.revoke-keycomp.example.com"]
         )
 
-        # Revoke with reason=1 (keyCompromise)
-        client.revoke_certificate(result.certificate_pem, reason=1)
+        # Revoke with RevocationReason.KEY_COMPROMISE
+        client.revoke_certificate(result.certificate_pem, reason=RevocationReason.KEY_COMPROMISE)
 
     def test_revoke_invalid_certificate_raises_error(self, client: AcmeClient):
         """Revoking an invalid certificate should raise AcmeError."""

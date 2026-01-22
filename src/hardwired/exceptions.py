@@ -4,6 +4,8 @@ import logging
 from datetime import UTC
 from typing import Any
 
+from hardwired.models import AcmeErrorType
+
 logger = logging.getLogger("hardwired.exceptions")
 
 
@@ -60,7 +62,7 @@ class AcmeError(Exception):
         }
 
         # Route to subclass based on error type
-        if error_type == "urn:ietf:params:acme:error:rateLimited":
+        if error_type == AcmeErrorType.RATE_LIMITED:
             error = RateLimitError(**kwargs)
             logger.warning(
                 "Rate limit exceeded",
@@ -72,13 +74,13 @@ class AcmeError(Exception):
                 },
             )
             return error
-        elif error_type == "urn:ietf:params:acme:error:dns":
+        elif error_type == AcmeErrorType.DNS:
             return DnsValidationError(**kwargs)
-        elif error_type == "urn:ietf:params:acme:error:caa":
+        elif error_type == AcmeErrorType.CAA:
             return CAAError(**kwargs)
-        elif error_type == "urn:ietf:params:acme:error:serverInternal":
+        elif error_type == AcmeErrorType.SERVER_INTERNAL:
             return ServerInternalError(**kwargs)
-        elif error_type == "urn:ietf:params:acme:error:badNonce":
+        elif error_type == AcmeErrorType.BAD_NONCE:
             return BadNonceError(**kwargs)
 
         return cls(**kwargs)
