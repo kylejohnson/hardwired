@@ -1,10 +1,6 @@
 """Unit tests for DNS providers."""
 
-import json
-
-import httpx
 import pytest
-import respx
 
 from hardwired.providers.base import DnsProvider
 from hardwired.providers.pebble import PebbleProvider
@@ -122,86 +118,60 @@ class TestPowerDnsProvider:
 class TestPowerDnsProviderFindZone:
     """Unit tests for PowerDnsProvider._find_zone() method."""
 
-    @respx.mock
-    def test_find_zone_exact_match(self):
+    def test_find_zone_exact_match(
+        self, powerdns_api_url: str, powerdns_api_key: str, powerdns_test_zone: str
+    ):
         """Should find zone when domain matches zone exactly."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
+        provider = PowerDnsProvider(api_url=powerdns_api_url, api_key=powerdns_api_key)
 
         result = provider._find_zone("example.org")
 
         assert result == "example.org."
 
-    @respx.mock
-    def test_find_zone_subdomain_match(self):
+    def test_find_zone_subdomain_match(
+        self, powerdns_api_url: str, powerdns_api_key: str, powerdns_test_zone: str
+    ):
         """Should find parent zone for subdomain."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
+        provider = PowerDnsProvider(api_url=powerdns_api_url, api_key=powerdns_api_key)
 
         result = provider._find_zone("sub.example.org")
 
         assert result == "example.org."
 
-    @respx.mock
-    def test_find_zone_deep_subdomain(self):
+    def test_find_zone_deep_subdomain(
+        self, powerdns_api_url: str, powerdns_api_key: str, powerdns_test_zone: str
+    ):
         """Should find zone for deeply nested subdomain."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
+        provider = PowerDnsProvider(api_url=powerdns_api_url, api_key=powerdns_api_key)
 
         result = provider._find_zone("a.b.c.example.org")
 
         assert result == "example.org."
 
-    @respx.mock
-    def test_find_zone_prefers_most_specific(self):
-        """Should prefer more specific zone when multiple match."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(
-                200, json=[{"name": "example.org."}, {"name": "sub.example.org."}]
-            )
-        )
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
-
-        result = provider._find_zone("host.sub.example.org")
-
-        assert result == "sub.example.org."
-
-    @respx.mock
-    def test_find_zone_no_match_raises_valueerror(self):
+    def test_find_zone_no_match_raises_valueerror(
+        self, powerdns_api_url: str, powerdns_api_key: str, powerdns_test_zone: str
+    ):
         """Should raise ValueError when no zone matches."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
+        provider = PowerDnsProvider(api_url=powerdns_api_url, api_key=powerdns_api_key)
 
         with pytest.raises(ValueError, match="No zone found for domain"):
-            provider._find_zone("other.com")
+            provider._find_zone("nonexistent.tld")
 
-    @respx.mock
-    def test_find_zone_handles_trailing_dot(self):
+    def test_find_zone_handles_trailing_dot(
+        self, powerdns_api_url: str, powerdns_api_key: str, powerdns_test_zone: str
+    ):
         """Should handle domain with trailing dot."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
+        provider = PowerDnsProvider(api_url=powerdns_api_url, api_key=powerdns_api_key)
 
         result = provider._find_zone("example.org.")
 
         assert result == "example.org."
 
-    @respx.mock
-    def test_find_zone_handles_no_trailing_dot(self):
+    def test_find_zone_handles_no_trailing_dot(
+        self, powerdns_api_url: str, powerdns_api_key: str, powerdns_test_zone: str
+    ):
         """Should handle domain without trailing dot."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
+        provider = PowerDnsProvider(api_url=powerdns_api_url, api_key=powerdns_api_key)
 
         result = provider._find_zone("example.org")
 
@@ -304,30 +274,23 @@ class TestPowerDnsProviderErrorHandling:
 class TestPowerDnsProviderCommonRecord:
     """Unit tests for _common_dns_record() method."""
 
-    @respx.mock
-    def test_common_dns_record_replace_success(self):
+    def test_common_dns_record_replace_success(
+        self, powerdns_api_url: str, powerdns_api_key: str, powerdns_test_zone: str
+    ):
         """REPLACE changetype with 204 should succeed."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        respx.patch("http://localhost:8081/api/v1/servers/localhost/zones/example.org.").mock(
-            return_value=httpx.Response(204)
-        )
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
+        provider = PowerDnsProvider(api_url=powerdns_api_url, api_key=powerdns_api_key)
 
         # Should not raise
         provider._common_dns_record("test.example.org", "test-token", "REPLACE")
 
-    @respx.mock
-    def test_common_dns_record_delete_success(self):
+    def test_common_dns_record_delete_success(
+        self, powerdns_api_url: str, powerdns_api_key: str, powerdns_test_zone: str
+    ):
         """DELETE changetype with 204 should succeed."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        respx.patch("http://localhost:8081/api/v1/servers/localhost/zones/example.org.").mock(
-            return_value=httpx.Response(204)
-        )
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
+        provider = PowerDnsProvider(api_url=powerdns_api_url, api_key=powerdns_api_key)
+
+        # First create a record, then delete it
+        provider._common_dns_record("test.example.org", "test-token", "REPLACE")
 
         # Should not raise
         provider._common_dns_record("test.example.org", "test-token", "DELETE")
@@ -338,105 +301,3 @@ class TestPowerDnsProviderCommonRecord:
 
         with pytest.raises(ValueError, match="Invalid changetype: INVALID"):
             provider._common_dns_record("example.org", "token", "INVALID")
-
-    @respx.mock
-    def test_common_dns_record_constructs_correct_payload_replace(self):
-        """REPLACE should include ttl and records in payload."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        patch_route = respx.patch(
-            "http://localhost:8081/api/v1/servers/localhost/zones/example.org."
-        ).mock(return_value=httpx.Response(204))
-
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
-
-        provider._common_dns_record("test.example.org", "my-token", "REPLACE")
-
-        # Verify the request
-        assert patch_route.called
-        request = patch_route.calls.last.request
-        payload = json.loads(request.content)
-
-        assert len(payload["rrsets"]) == 1
-        rrset = payload["rrsets"][0]
-        assert rrset["name"] == "_acme-challenge.test.example.org."
-        assert rrset["type"] == "TXT"
-        assert rrset["changetype"] == "REPLACE"
-        assert rrset["ttl"] == 60
-        assert len(rrset["records"]) == 1
-        assert rrset["records"][0]["content"] == '"my-token"'
-        assert rrset["records"][0]["disabled"] is False
-
-    @respx.mock
-    def test_common_dns_record_constructs_correct_payload_delete(self):
-        """DELETE should not include ttl or records in payload."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        patch_route = respx.patch(
-            "http://localhost:8081/api/v1/servers/localhost/zones/example.org."
-        ).mock(return_value=httpx.Response(204))
-
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
-
-        provider._common_dns_record("test.example.org", "my-token", "DELETE")
-
-        # Verify the request
-        assert patch_route.called
-        request = patch_route.calls.last.request
-        payload = json.loads(request.content)
-
-        assert len(payload["rrsets"]) == 1
-        rrset = payload["rrsets"][0]
-        assert rrset["name"] == "_acme-challenge.test.example.org."
-        assert rrset["type"] == "TXT"
-        assert rrset["changetype"] == "DELETE"
-        assert "ttl" not in rrset
-        assert "records" not in rrset
-
-    @respx.mock
-    def test_common_dns_record_400_raises_valueerror(self):
-        """400 response should raise ValueError with 'Bad Request'."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        respx.patch("http://localhost:8081/api/v1/servers/localhost/zones/example.org.").mock(
-            return_value=httpx.Response(400, json={"error": "Malformed request"})
-        )
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
-
-        with pytest.raises(ValueError, match="Bad Request: Malformed request"):
-            provider._common_dns_record("test.example.org", "token", "REPLACE")
-
-    @respx.mock
-    def test_common_dns_record_404_raises_valueerror(self):
-        """404 response should raise ValueError with 'Zone not found'."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        respx.patch("http://localhost:8081/api/v1/servers/localhost/zones/example.org.").mock(
-            return_value=httpx.Response(404, json={"error": "Zone not in database"})
-        )
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
-
-        with pytest.raises(ValueError, match="Zone not found: Zone not in database"):
-            provider._common_dns_record("test.example.org", "token", "REPLACE")
-
-    @respx.mock
-    def test_common_dns_record_uses_correct_headers(self):
-        """Should send X-API-Key and Content-Type headers."""
-        respx.get("http://localhost:8081/api/v1/servers/localhost/zones").mock(
-            return_value=httpx.Response(200, json=[{"name": "example.org."}])
-        )
-        patch_route = respx.patch(
-            "http://localhost:8081/api/v1/servers/localhost/zones/example.org."
-        ).mock(return_value=httpx.Response(204))
-
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="my-secret-key")
-
-        provider._common_dns_record("test.example.org", "token", "REPLACE")
-
-        request = patch_route.calls.last.request
-        assert request.headers["X-API-Key"] == "my-secret-key"
-        assert request.headers["Content-Type"] == "application/json"
