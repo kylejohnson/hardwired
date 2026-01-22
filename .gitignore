@@ -57,3 +57,5 @@ Thumbs.db
 .env.local
 
 .uv_cache/
+test.py
+notes-for-certifier.md

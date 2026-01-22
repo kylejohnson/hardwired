@@ -7,6 +7,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
+from hardwired._logging import Timer, get_logger
 from hardwired.crypto import (
     base64url_encode,
     create_csr,
@@ -26,6 +27,8 @@ from hardwired.models import (
     Order,
 )
 from hardwired.providers.base import DnsProvider
+
+logger = get_logger(__name__)
 
 # Type alias for private keys
 PrivateKey = rsa.RSAPrivateKey | ec.EllipticCurvePrivateKey
@@ -99,11 +102,17 @@ class AcmeClient:
         if self._nonce:
             nonce = self._nonce
             self._nonce = None
+            logger.debug("Using cached nonce", extra={"nonce": nonce[:16] + "..."})
             return nonce
 
         response = self._http.head(self.directory.new_nonce)
         response.raise_for_status()
-        return response.headers["Replay-Nonce"]
+        nonce = response.headers["Replay-Nonce"]
+        logger.debug(
+            "Fetched fresh nonce",
+            extra={"url": self.directory.new_nonce, "nonce": nonce[:16] + "..."},
+        )
+        return nonce
 
     def _update_nonce(self, response: httpx.Response) -> None:
         """Update the cached nonce from response headers."""
@@ -151,10 +160,20 @@ class AcmeClient:
             "signature": parts[2],
         }
 
-        response = self._http.post(
-            url,
-            json=body,
-            headers={"Content-Type": "application/jose+json"},
+        with Timer() as timer:
+            response = self._http.post(
+                url,
+                json=body,
+                headers={"Content-Type": "application/jose+json"},
+            )
+
+        logger.debug(
+            "ACME request completed",
+            extra={
+                "url": url,
+                "status_code": response.status_code,
+                "elapsed_ms": round(timer.elapsed_ms, 2),
+            },
         )
 
         # Always update nonce from response
@@ -174,10 +193,34 @@ class AcmeClient:
                 if isinstance(error, BadNonceError) and _retry_count < 3:
                     # Get fresh nonce and retry
                     self._nonce = None  # Force fresh nonce
+                    logger.warning(
+                        "Bad nonce error, retrying request",
+                        extra={
+                            "url": url,
+                            "attempt": _retry_count + 1,
+                            "max_attempts": 3,
+                        },
+                    )
                     return self._signed_request(url, payload, use_kid, _retry_count + 1)
 
+                logger.error(
+                    "ACME request failed",
+                    extra={
+                        "url": url,
+                        "status_code": response.status_code,
+                        "error_type": error.type,
+                        "detail": error.detail,
+                    },
+                )
                 raise error
             except json.JSONDecodeError:
+                logger.error(
+                    "ACME request failed with unparseable response",
+                    extra={
+                        "url": url,
+                        "status_code": response.status_code,
+                    },
+                )
                 raise AcmeError(
                     type="unknown",
                     detail=response.text,
@@ -214,7 +257,17 @@ class AcmeClient:
         # Store account URL from Location header
         self._account_url = response.headers.get("Location")
 
-        return Account.model_validate(response.json())
+        account = Account.model_validate(response.json())
+        is_new = response.status_code == 201
+        logger.info(
+            "Account registered" if is_new else "Existing account found",
+            extra={
+                "account_url": self._account_url,
+                "status": account.status,
+            },
+        )
+
+        return account
 
     def rollover_key(self, new_key: PrivateKey) -> None:
         """Roll over to a new account key (RFC 8555 Section 7.3.5).
@@ -305,6 +358,15 @@ class AcmeClient:
         if order_url:
             # Attach order URL as an attribute for convenience
             object.__setattr__(order, "_url", order_url)
+
+        logger.info(
+            "Order created",
+            extra={
+                "domains": domains,
+                "order_url": order_url,
+                "status": order.status,
+            },
+        )
 
         return order
 
@@ -402,6 +464,15 @@ class AcmeClient:
             .decode()
         )
 
+        logger.debug(
+            "Starting challenge completion",
+            extra={
+                "domain": domain,
+                "challenge_type": challenge.type,
+                "challenge_url": challenge.url,
+            },
+        )
+
         try:
             if not skip_dns_setup:
                 # Set up DNS record
@@ -412,7 +483,16 @@ class AcmeClient:
             self._signed_request(challenge.url, {})
 
             # Poll for challenge status
-            return self._poll_challenge(challenge.url)
+            result = self._poll_challenge(challenge.url)
+            logger.info(
+                "Challenge completed",
+                extra={
+                    "domain": domain,
+                    "challenge_type": challenge.type,
+                    "status": result.status,
+                },
+            )
+            return result
         finally:
             if not skip_dns_setup:
                 # Clean up DNS record
@@ -425,9 +505,19 @@ class AcmeClient:
         """Poll a challenge until it's valid or invalid."""
         import time
 
-        for _ in range(self.MAX_POLL_ATTEMPTS):
+        for attempt in range(self.MAX_POLL_ATTEMPTS):
             response = self._signed_request(challenge_url, "")
             challenge = Challenge.model_validate(response.json())
+
+            logger.debug(
+                "Polling challenge",
+                extra={
+                    "challenge_url": challenge_url,
+                    "status": challenge.status,
+                    "attempt": attempt + 1,
+                    "max_attempts": self.MAX_POLL_ATTEMPTS,
+                },
+            )
 
             if challenge.status == "valid":
                 return challenge
@@ -459,9 +549,19 @@ class AcmeClient:
         """Poll an order until it's ready or invalid."""
         import time
 
-        for _ in range(self.MAX_POLL_ATTEMPTS):
+        for attempt in range(self.MAX_POLL_ATTEMPTS):
             response = self._signed_request(order_url, "")
             order = Order.model_validate(response.json())
+
+            logger.debug(
+                "Polling order",
+                extra={
+                    "order_url": order_url,
+                    "status": order.status,
+                    "attempt": attempt + 1,
+                    "max_attempts": self.MAX_POLL_ATTEMPTS,
+                },
+            )
 
             if order.status == "ready" or order.status == "valid":
                 return order
@@ -592,6 +692,11 @@ class AcmeClient:
         Returns:
             CertificateResult with certificate_pem, private_key_pem, and expires_at.
         """
+        logger.info(
+            "Starting certificate issuance",
+            extra={"domains": domains},
+        )
+
         # Generate CSR if not provided
         private_key_pem: str | None = None
         if csr is None:
@@ -641,6 +746,14 @@ class AcmeClient:
         # Parse certificate to get expiration
         cert = x509.load_pem_x509_certificate(certificate_pem.encode())
         expires_at = cert.not_valid_after_utc
+
+        logger.info(
+            "Certificate issued",
+            extra={
+                "domains": domains,
+                "expires_at": expires_at.isoformat(),
+            },
+        )
 
         # Build authorization info for deactivation support
         authz_info_list: list[AuthorizationInfo] = []

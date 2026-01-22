@@ -2,7 +2,10 @@
 
 import httpx
 
+from hardwired._logging import get_logger
 from hardwired.providers.base import DnsProvider
+
+logger = get_logger(__name__)
 
 
 class PowerDnsProvider(DnsProvider):
@@ -56,6 +59,11 @@ class PowerDnsProvider(DnsProvider):
         for i in range(len(parts)):
             candidate = ".".join(parts[i:]) + "."
 
+            logger.debug(
+                "Trying zone candidate",
+                extra={"domain": domain, "candidate": candidate},
+            )
+
             # Test if this zone exists by requesting it directly
             response = httpx.get(
                 f"{self.api_url}/api/v1/servers/{self.server_id}/zones/{candidate}",
@@ -64,6 +72,10 @@ class PowerDnsProvider(DnsProvider):
             )
 
             if response.status_code == 200:
+                logger.debug(
+                    "Zone found",
+                    extra={"domain": domain, "zone": candidate},
+                )
                 return candidate
 
         raise ValueError(f"No zone found for domain: {domain}")
@@ -79,6 +91,10 @@ class PowerDnsProvider(DnsProvider):
             ValueError: For API errors with descriptive messages.
         """
         if response.status_code == 204:
+            logger.debug(
+                "PowerDNS API request successful",
+                extra={"zone": zone, "status_code": response.status_code},
+            )
             return  # Success
 
         # Try to extract error detail from response body
@@ -98,6 +114,10 @@ class PowerDnsProvider(DnsProvider):
         message = status_messages.get(
             response.status_code,
             f"Unexpected error ({response.status_code}): {detail}",
+        )
+        logger.error(
+            "PowerDNS API error",
+            extra={"zone": zone, "status_code": response.status_code, "detail": detail},
         )
         raise ValueError(message)
 
@@ -154,6 +174,10 @@ class PowerDnsProvider(DnsProvider):
             ValueError: If no matching zone is found or API error.
         """
         self._common_dns_record(domain, token, "REPLACE")
+        logger.info(
+            "TXT record created",
+            extra={"domain": domain, "record_name": f"_acme-challenge.{domain}"},
+        )
 
     def delete_txt_record(self, domain: str, token: str) -> None:
         """Delete a TXT record via PowerDNS API.
@@ -166,6 +190,10 @@ class PowerDnsProvider(DnsProvider):
             ValueError: If no matching zone is found or API error.
         """
         self._common_dns_record(domain, token, "DELETE")
+        logger.info(
+            "TXT record deleted",
+            extra={"domain": domain, "record_name": f"_acme-challenge.{domain}"},
+        )
 
     def wait_for_propagation(self, domain: str, token: str, timeout: int = 120) -> bool:
         """Wait for DNS propagation.

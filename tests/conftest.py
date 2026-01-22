@@ -1,6 +1,8 @@
 """Pytest fixtures for Hardwired test suite."""
 
 import contextlib
+import logging
+import logging.handlers
 import os
 import ssl
 import warnings
@@ -125,3 +127,77 @@ def powerdns_test_zone(powerdns_api_url: str, powerdns_api_key: str) -> Generato
             headers=headers,
             timeout=30,
         )
+
+
+class LogCapture:
+    """Helper class to capture and inspect log records."""
+
+    def __init__(self, handler: logging.handlers.MemoryHandler) -> None:
+        self._handler = handler
+
+    @property
+    def records(self) -> list[logging.LogRecord]:
+        """Get all captured log records."""
+        return self._handler.buffer
+
+    def get_records(
+        self, level: int | None = None, name: str | None = None
+    ) -> list[logging.LogRecord]:
+        """Get log records filtered by level and/or logger name.
+
+        Args:
+            level: Filter by log level (e.g., logging.INFO).
+            name: Filter by logger name prefix (e.g., "hardwired.client").
+
+        Returns:
+            List of matching log records.
+        """
+        records = self.records
+        if level is not None:
+            records = [r for r in records if r.levelno == level]
+        if name is not None:
+            records = [r for r in records if r.name.startswith(name)]
+        return records
+
+    def get_messages(self, level: int | None = None, name: str | None = None) -> list[str]:
+        """Get log messages filtered by level and/or logger name.
+
+        Args:
+            level: Filter by log level (e.g., logging.INFO).
+            name: Filter by logger name prefix (e.g., "hardwired.client").
+
+        Returns:
+            List of log message strings.
+        """
+        return [r.getMessage() for r in self.get_records(level, name)]
+
+    def clear(self) -> None:
+        """Clear all captured log records."""
+        self._handler.buffer.clear()
+
+
+@pytest.fixture
+def log_capture() -> Generator[LogCapture]:
+    """Capture logs from the hardwired library during a test.
+
+    Usage:
+        def test_something(log_capture):
+            # do something that logs
+            assert "Certificate issued" in log_capture.get_messages(logging.INFO)
+    """
+    # Create a memory handler to capture logs
+    handler = logging.handlers.MemoryHandler(capacity=1000)
+    handler.setLevel(logging.DEBUG)
+
+    # Attach to the hardwired root logger
+    hardwired_logger = logging.getLogger("hardwired")
+    original_level = hardwired_logger.level
+    hardwired_logger.setLevel(logging.DEBUG)
+    hardwired_logger.addHandler(handler)
+
+    try:
+        yield LogCapture(handler)
+    finally:
+        hardwired_logger.removeHandler(handler)
+        hardwired_logger.setLevel(original_level)
+        handler.close()

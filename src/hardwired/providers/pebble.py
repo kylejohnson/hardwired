@@ -2,7 +2,10 @@
 
 import httpx
 
+from hardwired._logging import get_logger
 from hardwired.providers.base import DnsProvider
+
+logger = get_logger(__name__)
 
 
 class PebbleProvider(DnsProvider):
@@ -38,6 +41,10 @@ class PebbleProvider(DnsProvider):
             },
         )
         response.raise_for_status()
+        logger.debug(
+            "TXT record created (pebble)",
+            extra={"domain": domain, "record_name": host},
+        )
 
     def delete_txt_record(self, domain: str, token: str) -> None:
         """Delete a TXT record via pebble-challtestsrv API.
@@ -55,6 +62,10 @@ class PebbleProvider(DnsProvider):
             },
         )
         response.raise_for_status()
+        logger.debug(
+            "TXT record deleted (pebble)",
+            extra={"domain": domain, "record_name": host},
+        )
 
     def wait_for_propagation(self, domain: str, token: str, timeout: int = 120) -> bool:
         """Wait for DNS propagation.

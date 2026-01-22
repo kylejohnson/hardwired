@@ -54,6 +54,52 @@ print(cert.expires_at)         # Expiration timestamp
 - DNS-01 challenge support
 - Pluggable DNS provider architecture
 - Type hints on all public APIs
+- Structured logging with hierarchical loggers
+
+## Logging
+
+Hardwired uses Python's standard logging module with a hierarchical logger structure. By default, the library is silent (using `NullHandler`). Configure logging to see output:
+
+```python
+import logging
+
+# Basic: INFO level to console
+logging.basicConfig(level=logging.INFO)
+
+# See all operations (verbose)
+logging.getLogger("hardwired").setLevel(logging.DEBUG)
+
+# Debug only DNS provider operations
+logging.getLogger("hardwired.providers").setLevel(logging.DEBUG)
+```
+
+### Logger Hierarchy
+
+| Logger | Purpose |
+|--------|---------|
+| `hardwired` | Root logger |
+| `hardwired.client` | ACME client operations |
+| `hardwired.providers.powerdns` | PowerDNS provider |
+| `hardwired.providers.pebble` | Pebble test provider |
+| `hardwired.exceptions` | Rate limit warnings |
+
+### Structured Logging
+
+All log calls include structured `extra` fields for machine-readable output:
+
+```python
+from pythonjsonlogger import jsonlogger
+
+handler = logging.StreamHandler()
+handler.setFormatter(jsonlogger.JsonFormatter())
+logging.getLogger("hardwired").addHandler(handler)
+logging.getLogger("hardwired").setLevel(logging.INFO)
+```
+
+Example output:
+```json
+{"message": "Certificate issued", "domains": ["example.com"], "expires_at": "2024-04-15T12:00:00Z"}
+```
 
 ## DNS Providers
 

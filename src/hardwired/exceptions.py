@@ -1,6 +1,10 @@
 """ACME protocol exceptions."""
 
+import logging
+from datetime import UTC
 from typing import Any
+
+logger = logging.getLogger("hardwired.exceptions")
 
 
 class AcmeError(Exception):
@@ -57,7 +61,17 @@ class AcmeError(Exception):
 
         # Route to subclass based on error type
         if error_type == "urn:ietf:params:acme:error:rateLimited":
-            return RateLimitError(**kwargs)
+            error = RateLimitError(**kwargs)
+            logger.warning(
+                "Rate limit exceeded",
+                extra={
+                    "error_type": error_type,
+                    "retry_after": retry_after,
+                    "rate_limit_type": error.rate_limit_type,
+                    "detail": kwargs["detail"],
+                },
+            )
+            return error
         elif error_type == "urn:ietf:params:acme:error:dns":
             return DnsValidationError(**kwargs)
         elif error_type == "urn:ietf:params:acme:error:caa":
@@ -84,12 +98,12 @@ class AcmeError(Exception):
         try:
             return int(value)
         except ValueError:
-            from datetime import datetime, timezone
+            from datetime import datetime
             from email.utils import parsedate_to_datetime
 
             try:
                 dt = parsedate_to_datetime(value)
-                return max(0, int((dt - datetime.now(timezone.utc)).total_seconds()))
+                return max(0, int((dt - datetime.now(UTC)).total_seconds()))
             except Exception:
                 return None
 
