@@ -178,58 +178,17 @@ class TestPowerDnsProviderFindZone:
         assert result == "example.org."
 
 
-class TestPowerDnsProviderErrorHandling:
-    """Unit tests for PowerDNS API error handling."""
+class TestPowerDnsProviderMockedErrors:
+    """Unit tests for PowerDNS error handling that require mocked responses.
 
-    def test_handle_response_204_success(self):
-        """204 should not raise."""
-        from unittest.mock import MagicMock
+    These tests cover server-side errors that cannot be triggered by client behavior:
+    - 500 Internal Server Error (database failures, etc.)
+    - 503 Service Unavailable (maintenance, overload)
+    - Malformed JSON responses
 
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
-        mock_response = MagicMock()
-        mock_response.status_code = 204
-
-        # Should not raise
-        provider._handle_response(mock_response, "example.org.")
-
-    def test_handle_response_400_bad_request(self):
-        """400 should raise ValueError with 'Bad Request'."""
-        from unittest.mock import MagicMock
-
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
-        mock_response = MagicMock()
-        mock_response.status_code = 400
-        mock_response.json.return_value = {"error": "Invalid JSON format"}
-        mock_response.text = "Invalid JSON format"
-
-        with pytest.raises(ValueError, match="Bad Request: Invalid JSON format"):
-            provider._handle_response(mock_response, "example.org.")
-
-    def test_handle_response_404_not_found(self):
-        """404 should raise ValueError with 'Zone not found'."""
-        from unittest.mock import MagicMock
-
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_response.json.return_value = {"error": "Zone example.org. not found"}
-        mock_response.text = "Zone example.org. not found"
-
-        with pytest.raises(ValueError, match="Zone not found: Zone example.org. not found"):
-            provider._handle_response(mock_response, "example.org.")
-
-    def test_handle_response_422_unprocessable(self):
-        """422 should raise ValueError with 'Unprocessable Entity'."""
-        from unittest.mock import MagicMock
-
-        provider = PowerDnsProvider(api_url="http://localhost:8081", api_key="secret")
-        mock_response = MagicMock()
-        mock_response.status_code = 422
-        mock_response.json.return_value = {"error": "Invalid record data"}
-        mock_response.text = "Invalid record data"
-
-        with pytest.raises(ValueError, match="Unprocessable Entity: Invalid record data"):
-            provider._handle_response(mock_response, "example.org.")
+    For client-triggerable errors (400, 404, 422), see the integration tests in:
+    tests/integration/test_powerdns_error_handling.py::TestPowerDnsApiErrorsIntegration
+    """
 
     def test_handle_response_500_server_error(self):
         """500 should raise ValueError with 'Server Error'."""
